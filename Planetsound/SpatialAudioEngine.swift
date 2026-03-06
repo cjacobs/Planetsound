@@ -1,22 +1,23 @@
 import AVFoundation
-import Combine
+import Observation
 
 /// Manages a 440 Hz sine-wave tone that orbits the listener using AVAudioEnvironmentNode.
 @MainActor
-final class SpatialAudioEngine: ObservableObject {
+@Observable
+final class SpatialAudioEngine {
 
-    // MARK: - Published state
+    // MARK: - Observable state
 
     /// Current angle of the sound source, in radians (0 = right, counter-clockwise).
-    @Published private(set) var angle: Double = 0
+    private(set) var angle: Double = 0
     /// Whether the engine is currently playing.
-    @Published private(set) var isPlaying = false
+    private(set) var isPlaying = false
 
     // MARK: - Audio graph
 
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private let environment = AVAudioEnvironmentNode()
+    @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private let player = AVAudioPlayerNode()
+    @ObservationIgnored private let environment = AVAudioEnvironmentNode()
 
     // MARK: - Orbit parameters
 
@@ -27,8 +28,8 @@ final class SpatialAudioEngine: ObservableObject {
 
     // MARK: - Animation
 
-    private var displayLink: CADisplayLink?
-    private var startDate: Date?
+    @ObservationIgnored private var orbitTimer: Timer?
+    @ObservationIgnored private var startDate: Date?
 
     // MARK: - Init
 
@@ -125,19 +126,23 @@ final class SpatialAudioEngine: ObservableObject {
 
     private func startOrbiting() {
         startDate = Date()
-        let link = CADisplayLink(target: OrbiterProxy(engine: self),
-                                 selector: #selector(OrbiterProxy.tick(_:)))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
+        // ~60 fps timer; works on both iOS and macOS.
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateOrbit()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        orbitTimer = timer
     }
 
     private func stopOrbiting() {
-        displayLink?.invalidate()
-        displayLink = nil
+        orbitTimer?.invalidate()
+        orbitTimer = nil
         startDate = nil
     }
 
-    fileprivate func updateOrbit(timestamp: CFTimeInterval) {
+    private func updateOrbit() {
         guard let start = startDate else { return }
         let elapsed = Date().timeIntervalSince(start)
         let fraction = elapsed.truncatingRemainder(dividingBy: revolutionDuration) / revolutionDuration
@@ -147,17 +152,5 @@ final class SpatialAudioEngine: ObservableObject {
         let x = Float(cos(theta)) * orbitRadius
         let z = Float(sin(theta)) * orbitRadius   // z = depth axis; y = height
         player.position = AVAudio3DPoint(x: x, y: 0, z: z)
-    }
-}
-
-// CADisplayLink requires an ObjC target; keep SpatialAudioEngine off the ObjC runtime.
-private final class OrbiterProxy: NSObject {
-    weak var engine: SpatialAudioEngine?
-    init(engine: SpatialAudioEngine) { self.engine = engine }
-
-    @objc func tick(_ link: CADisplayLink) {
-        Task { @MainActor [weak self] in
-            self?.engine?.updateOrbit(timestamp: link.timestamp)
-        }
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var audio = SpatialAudioEngine()
+    @State private var audio = SpatialAudioEngine()
 
     var body: some View {
         ZStack {
@@ -68,7 +68,7 @@ struct OrbitView: View {
                                      y: centre.y - viewRadius,
                                      width: viewRadius * 2,
                                      height: viewRadius * 2)
-                var ring = Path(ellipseIn: ringRect)
+                let ring = Path(ellipseIn: ringRect)
                 ctx.stroke(ring, with: .color(.white.opacity(0.15)),
                            style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
 
@@ -81,7 +81,7 @@ struct OrbitView: View {
                          with: .color(.white.opacity(0.9)))
 
                 // "You" label
-                var text = Text("You").font(.system(size: 9, weight: .semibold))
+                let text = Text("You").font(.system(size: 9, weight: .semibold))
                 ctx.draw(text, at: CGPoint(x: centre.x, y: centre.y + listenerRadius + 8))
 
                 // ── Sound source ─────────────────────────────────────────
@@ -105,7 +105,7 @@ struct OrbitView: View {
                 ctx.fill(Path(ellipseIn: sourceRect), with: .color(.cyan))
 
                 // Hz label
-                var hzText = Text("440 Hz").font(.system(size: 8))
+                let hzText = Text("440 Hz").font(.system(size: 8))
                 ctx.draw(hzText, at: CGPoint(x: sx, y: sy - sourceRadius - 7),
                          anchor: .center)
 

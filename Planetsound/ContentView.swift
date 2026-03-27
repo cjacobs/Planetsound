@@ -29,22 +29,75 @@ struct ContentView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 40) {
-            Label("HRTF", systemImage: "ear")
+        VStack(spacing: 12) {
+            planetToggles
 
-            Button(action: { engine.toggle() }) {
-                Image(systemName: engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 52))
-                    .foregroundStyle(engine.isPlaying ? Color.yellow : Color.white)
-                    .symbolEffect(.bounce, value: engine.isPlaying)
+            HStack(spacing: 20) {
+                Label("HRTF", systemImage: "ear")
+
+                Button(action: { engine.toggle() }) {
+                    Image(systemName: engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 52))
+                        .foregroundStyle(engine.isPlaying ? Color.yellow : Color.white)
+                        .symbolEffect(.bounce, value: engine.isPlaying)
+                }
+                .buttonStyle(.plain)
+
+                generatorPicker
             }
-            .buttonStyle(.plain)
-
-            Label("9 worlds", systemImage: "globe")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.bottom, 24)
+    }
+
+    private var planetToggles: some View {
+        HStack(spacing: 6) {
+            ForEach(Planet.all) { planet in
+                let enabled = engine.planetEnabled[planet.name] ?? true
+                Button {
+                    engine.setPlanetEnabled(planet.name, enabled: !enabled)
+                } label: {
+                    Text(planetAbbreviation(planet.name))
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(enabled ? .white : .white.opacity(0.3))
+                        .frame(width: 28, height: 22)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(planet.color.opacity(enabled ? 0.7 : 0.15))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var generatorPicker: some View {
+        Picker("Generator", selection: Binding(
+            get: { engine.generator },
+            set: { engine.setGenerator($0) }
+        )) {
+            ForEach(SoundGenerator.allCases) { gen in
+                Text(gen.label).tag(gen)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 180)
+    }
+
+    private func planetAbbreviation(_ name: String) -> String {
+        switch name {
+        case "Mercury": "Me"
+        case "Venus":   "Ve"
+        case "Earth":   "Ea"
+        case "Mars":    "Ma"
+        case "Jupiter": "Ju"
+        case "Saturn":  "Sa"
+        case "Uranus":  "Ur"
+        case "Neptune": "Ne"
+        case "Pluto":   "Pl"
+        default:        String(name.prefix(2))
+        }
     }
 }
 

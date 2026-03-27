@@ -15,6 +15,14 @@ final class SolarSystemEngine {
     )
     private(set) var isPlaying = false
 
+    /// Per-planet mute state. `true` means the planet is audible.
+    var planetEnabled: [String: Bool] = Dictionary(
+        uniqueKeysWithValues: Planet.all.map { ($0.name, true) }
+    )
+
+    /// The active sound generation strategy.
+    private(set) var generator: SoundGenerator = .sine
+
     // MARK: - Orbit parameters
 
     /// Seconds Mercury takes to complete one full orbit.
@@ -64,6 +72,25 @@ final class SolarSystemEngine {
 
     func toggle() { isPlaying ? stop() : play() }
 
+    /// Mutes or unmutes a single planet by setting its player node volume.
+    func setPlanetEnabled(_ name: String, enabled: Bool) {
+        planetEnabled[name] = enabled
+        playerNodes[name]?.volume = enabled ? 1.0 : 0.0
+    }
+
+    /// Switches the sound generator and re-schedules all currently playing buffers.
+    func setGenerator(_ newGenerator: SoundGenerator) {
+        guard newGenerator != generator else { return }
+        generator = newGenerator
+        guard isPlaying else { return }
+        for planet in Planet.all {
+            guard let node = playerNodes[planet.name] else { continue }
+            node.stop()
+            scheduleTone(for: planet)
+            node.play()
+        }
+    }
+
     // MARK: - Private – audio setup
 
     private func configureAudioSession() {
@@ -97,27 +124,19 @@ final class SolarSystemEngine {
 
     // MARK: - Private – tone generation
 
-    private func makeSineBuffer(frequency: Double,
-                                sampleRate: Double = 44100,
-                                duration: Double = 2) -> AVAudioPCMBuffer {
-        // Use an exact integer number of wave cycles so the buffer loops
-        // seamlessly without any phase discontinuity.
-        let wholeCycles = max(1, Int(frequency * duration))
-        let frameCount  = AVAudioFrameCount(Double(wholeCycles) / frequency * sampleRate)
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
-        buffer.frameLength = frameCount
-        let data = buffer.floatChannelData![0]
-        let twoPi = 2.0 * Double.pi
-        for i in 0..<Int(frameCount) {
-            data[i] = Float(sin(twoPi * frequency * Double(i) / sampleRate)) * 0.12
-        }
-        return buffer
+    private func scheduleTone(for planet: Planet) {
+        let freq = mapping.audioFrequency(orbitalPeriodYears: planet.orbitalPeriodYears)
+        let buffer = generator.makeBuffer(
+            frequency: freq,
+            blipRate: angularVelocity(for: planet)
+        )
+        playerNodes[planet.name]?.scheduleBuffer(buffer, at: nil, options: .loops)
     }
 
-    private func scheduleTone(for planet: Planet) {
-        let buffer = makeSineBuffer(frequency: mapping.audioFrequency(orbitalPeriodYears: planet.orbitalPeriodYears))
-        playerNodes[planet.name]?.scheduleBuffer(buffer, at: nil, options: .loops)
+    /// Angular velocity in rad/s for the given planet.
+    private func angularVelocity(for planet: Planet) -> Double {
+        let omegaMercury = 2.0 * Double.pi / mercuryRevolutionDuration
+        return omegaMercury * (0.241 / planet.orbitalPeriodYears)
     }
 
     // MARK: - Private – orbit animation
@@ -141,13 +160,8 @@ final class SolarSystemEngine {
         guard let start = startDate else { return }
         let elapsed = Date().timeIntervalSince(start)
 
-        // Mercury's angular velocity in rad/s.
-        let ωMercury = 2.0 * Double.pi / mercuryRevolutionDuration
-
         for planet in Planet.all {
-            // Each planet's ω scales by the ratio of Mercury's period to its own
-            // (shorter period = faster angular velocity).
-            let ω = ωMercury * (0.241 / planet.orbitalPeriodYears)
+            let ω = angularVelocity(for: planet)
             let θ = ω * elapsed
             angles[planet.name] = θ
 

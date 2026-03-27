@@ -21,8 +21,12 @@ final class SpatialAudioEngine {
 
     // MARK: - Orbit parameters
 
-    /// Radius of the orbit in metres.
-    let orbitRadius: Float = 1.5
+    /// Semi-major axis of the elliptical orbit in metres.
+    let semiMajorAxis: Float = 2.0
+    /// Semi-minor axis of the elliptical orbit in metres.
+    let semiMinorAxis: Float = 1.6
+    /// Distance from ellipse centre to each focus (listener sits at one focus).
+    var focalDistance: Float { sqrt(semiMajorAxis * semiMajorAxis - semiMinorAxis * semiMinorAxis) }
     /// Time in seconds for one full revolution.
     let revolutionDuration: Double = 8
 
@@ -86,8 +90,8 @@ final class SpatialAudioEngine {
         environment.reverbParameters.enable = true
         environment.reverbParameters.level = -10
 
-        // Place player node inside the environment.
-        player.position = AVAudio3DPoint(x: orbitRadius, y: 0, z: 0)
+        // Place player node at periapsis (θ=0) of the ellipse.
+        player.position = AVAudio3DPoint(x: semiMajorAxis - focalDistance, y: 0, z: 0)
     }
 
     // MARK: - Private – tone generation
@@ -149,8 +153,9 @@ final class SpatialAudioEngine {
         let theta = fraction * 2 * .pi
         angle = theta
 
-        let x = Float(cos(theta)) * orbitRadius
-        let z = Float(sin(theta)) * orbitRadius   // z = depth axis; y = height
+        // Ellipse with listener at focus: x = a·cos(θ) − c,  z = b·sin(θ)
+        let x = Float(cos(theta)) * semiMajorAxis - focalDistance
+        let z = Float(sin(theta)) * semiMinorAxis   // z = depth axis; y = height
         player.position = AVAudio3DPoint(x: x, y: 0, z: z)
     }
 }

@@ -13,8 +13,9 @@ struct ContentView: View {
                     .foregroundStyle(.white)
 
                 OrbitView(angle: audio.angle,
-                          orbitRadius: Double(audio.orbitRadius))
-                    .frame(width: 280, height: 280)
+                          semiMajorAxis: Double(audio.semiMajorAxis),
+                          semiMinorAxis: Double(audio.semiMinorAxis))
+                    .frame(width: 300, height: 220)
 
                 infoRow
 
@@ -51,68 +52,74 @@ struct ContentView: View {
 // MARK: - Orbit visualisation
 
 struct OrbitView: View {
-    let angle: Double       // radians
-    let orbitRadius: Double // conceptual; mapped to view coords
+    let angle: Double        // radians; parametric angle on the ellipse
+    let semiMajorAxis: Double
+    let semiMinorAxis: Double
 
     private let listenerRadius: CGFloat = 14
     private let sourceRadius: CGFloat   = 10
 
     var body: some View {
         GeometryReader { geo in
-            let centre = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
-            let viewRadius = min(geo.size.width, geo.size.height) / 2 - sourceRadius - 4
+            // Scale so the full ellipse fits with padding.
+            let padding = sourceRadius + 4
+            let a = geo.size.width  / 2 - padding   // semi-major in screen pts
+            let b = a * (semiMinorAxis / semiMajorAxis) // semi-minor, preserving ratio
+            let c = sqrt(a * a - b * b)               // focal distance in screen pts
+
+            // Ellipse is centred on the canvas; listener sits at the right focus.
+            let ellipseCentre = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let listenerPt    = CGPoint(x: ellipseCentre.x + c, y: ellipseCentre.y)
+
+            // Source parametric position (ellipse centred at ellipseCentre).
+            let sx = ellipseCentre.x + a * CGFloat(cos(angle))
+            let sy = ellipseCentre.y + b * CGFloat(sin(angle))
+            let sourcePt = CGPoint(x: sx, y: sy)
 
             Canvas { ctx, _ in
-                // ── Orbit ring ──────────────────────────────────────────
-                let ringRect = CGRect(x: centre.x - viewRadius,
-                                     y: centre.y - viewRadius,
-                                     width: viewRadius * 2,
-                                     height: viewRadius * 2)
-                let ring = Path(ellipseIn: ringRect)
-                ctx.stroke(ring, with: .color(.white.opacity(0.15)),
+                // ── Orbit ellipse ────────────────────────────────────────
+                let ringRect = CGRect(x: ellipseCentre.x - a,
+                                     y: ellipseCentre.y - b,
+                                     width: a * 2, height: b * 2)
+                ctx.stroke(Path(ellipseIn: ringRect),
+                           with: .color(.white.opacity(0.15)),
                            style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
 
-                // ── Listener (user) ──────────────────────────────────────
-                let listenerRect = CGRect(x: centre.x - listenerRadius,
-                                         y: centre.y - listenerRadius,
+                // ── Listener (user) at focus ──────────────────────────────
+                let listenerRect = CGRect(x: listenerPt.x - listenerRadius,
+                                         y: listenerPt.y - listenerRadius,
                                          width: listenerRadius * 2,
                                          height: listenerRadius * 2)
                 ctx.fill(Path(ellipseIn: listenerRect),
                          with: .color(.white.opacity(0.9)))
 
-                // "You" label
-                let text = Text("You").font(.system(size: 9, weight: .semibold))
-                ctx.draw(text, at: CGPoint(x: centre.x, y: centre.y + listenerRadius + 8))
+                let youLabel = Text("You").font(.system(size: 9, weight: .semibold))
+                ctx.draw(youLabel,
+                         at: CGPoint(x: listenerPt.x, y: listenerPt.y + listenerRadius + 8))
 
                 // ── Sound source ─────────────────────────────────────────
-                // angle=0 → right side; sin → downward (matches CoreAudio z-axis mapped to y)
-                let sx = centre.x + viewRadius * CGFloat(cos(angle))
-                let sy = centre.y + viewRadius * CGFloat(sin(angle))
-
-                // Glow
-                let glowRect = CGRect(x: sx - sourceRadius * 2,
-                                      y: sy - sourceRadius * 2,
-                                      width: sourceRadius * 4,
-                                      height: sourceRadius * 4)
+                let glowRect = CGRect(x: sourcePt.x - sourceRadius * 2,
+                                     y: sourcePt.y - sourceRadius * 2,
+                                     width: sourceRadius * 4,
+                                     height: sourceRadius * 4)
                 ctx.fill(Path(ellipseIn: glowRect),
                          with: .color(.cyan.opacity(0.2)))
 
-                // Sphere
-                let sourceRect = CGRect(x: sx - sourceRadius,
-                                        y: sy - sourceRadius,
+                let sourceRect = CGRect(x: sourcePt.x - sourceRadius,
+                                        y: sourcePt.y - sourceRadius,
                                         width: sourceRadius * 2,
                                         height: sourceRadius * 2)
                 ctx.fill(Path(ellipseIn: sourceRect), with: .color(.cyan))
 
-                // Hz label
                 let hzText = Text("440 Hz").font(.system(size: 8))
-                ctx.draw(hzText, at: CGPoint(x: sx, y: sy - sourceRadius - 7),
+                ctx.draw(hzText,
+                         at: CGPoint(x: sourcePt.x, y: sourcePt.y - sourceRadius - 7),
                          anchor: .center)
 
-                // Line from listener to source
+                // ── Line from focus (listener) to source ─────────────────
                 var line = Path()
-                line.move(to: centre)
-                line.addLine(to: CGPoint(x: sx, y: sy))
+                line.move(to: listenerPt)
+                line.addLine(to: sourcePt)
                 ctx.stroke(line, with: .color(.cyan.opacity(0.25)),
                            style: StrokeStyle(lineWidth: 1))
             }

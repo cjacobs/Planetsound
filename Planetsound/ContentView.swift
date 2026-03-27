@@ -55,7 +55,7 @@ struct SolarSystemView: View {
 
             /// Maps AU → screen points using the same logarithmic formula as the
             /// audio engine. Swap `log(1 + x)` for `sqrt(x)` or `x` to experiment.
-            func vr(_ au: Double) -> CGFloat {
+            let vr = { (au: Double) -> CGFloat in
                 CGFloat(log(1 + au) / log(1 + maxAU)) * maxRadius
             }
 

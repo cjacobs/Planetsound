@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-/// Centralises the logarithmic scale mappings used to translate orbital
+/// Centralizes the logarithmic scale mappings used to translate orbital
 /// mechanics (AU, orbital periods) into screen coordinates and audio
 /// parameters.
 struct ScaleMapping {
@@ -46,7 +46,7 @@ struct ScaleMapping {
 
     // MARK: - Core normalisation
 
-    /// Normalises an AU distance to 0…1 using log(1 + au) / log(1 + maxAU).
+    /// Normalizes an AU distance to 0…1 using log(1 + au) / log(1 + maxAU).
     func normalizedAU(_ au: Double) -> Double {
         log(1 + au) / logMaxAU
     }

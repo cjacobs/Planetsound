@@ -57,19 +57,19 @@ struct SolarSystemView: View {
         GeometryReader { geo in
             let shortSide  = min(geo.size.width, geo.size.height)
             let maxRadius  = shortSide / 2 - 20
-            let centre     = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let center     = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
             let mapping    = ScaleMapping.default
 
             Canvas { ctx, _ in
                 // ── Sun (listener) ───────────────────────────────────────
                 let sr: CGFloat = 7
-                ctx.fill(Path(ellipseIn: CGRect(x: centre.x - sr * 3, y: centre.y - sr * 3,
+                ctx.fill(Path(ellipseIn: CGRect(x: center.x - sr * 3, y: center.y - sr * 3,
                                                width: sr * 6, height: sr * 6)),
                          with: .color(.yellow.opacity(0.12)))
-                ctx.fill(Path(ellipseIn: CGRect(x: centre.x - sr * 1.6, y: centre.y - sr * 1.6,
+                ctx.fill(Path(ellipseIn: CGRect(x: center.x - sr * 1.6, y: center.y - sr * 1.6,
                                                width: sr * 3.2, height: sr * 3.2)),
                          with: .color(.yellow.opacity(0.3)))
-                ctx.fill(Path(ellipseIn: CGRect(x: centre.x - sr, y: centre.y - sr,
+                ctx.fill(Path(ellipseIn: CGRect(x: center.x - sr, y: center.y - sr,
                                                width: sr * 2, height: sr * 2)),
                          with: .color(.yellow.opacity(0.95)))
 
@@ -79,12 +79,12 @@ struct SolarSystemView: View {
                     let b = a * CGFloat(sqrt(1 - planet.eccentricity * planet.eccentricity))
                     let c = a * CGFloat(planet.eccentricity)
 
-                    // Sun is at the right focus → ellipse centre is c to the left.
-                    let ex = centre.x - c
+                    // Sun is at the right focus → ellipse center is c to the left.
+                    let ex = center.x - c
 
                     // Orbit ring
                     ctx.stroke(
-                        Path(ellipseIn: CGRect(x: ex - a, y: centre.y - b,
+                        Path(ellipseIn: CGRect(x: ex - a, y: center.y - b,
                                               width: a * 2, height: b * 2)),
                         with: .color(.white.opacity(0.12)),
                         style: StrokeStyle(lineWidth: 0.5)
@@ -93,7 +93,7 @@ struct SolarSystemView: View {
                     // Planet position on the ellipse (parametric angle θ)
                     let θ  = angles[planet.name] ?? 0
                     let px = ex + a * CGFloat(cos(θ))
-                    let py = centre.y + b * CGFloat(sin(θ))
+                    let py = center.y + b * CGFloat(sin(θ))
                     let r  = planet.displayRadius
 
                     // Glow

@@ -2,7 +2,7 @@ import AVFoundation
 import Observation
 
 /// Manages one spatial audio source per planet, all orbiting the listener
-/// (positioned at the origin — the centre of the solar system).
+/// (positioned at the origin — the center of the solar system).
 @MainActor
 @Observable
 final class SolarSystemEngine {

@@ -9,7 +9,7 @@ struct Planet: Identifiable {
     let eccentricity: Double
     /// Sidereal orbital period in Earth years.
     let orbitalPeriodYears: Double
-    /// Display colour for the orbit view.
+    /// Display color for the orbit view.
     let color: Color
     /// Radius of the planet sphere in the orbit canvas (points).
     let displayRadius: CGFloat

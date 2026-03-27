@@ -1,39 +1,46 @@
 import AVFoundation
 import Observation
 
-/// Manages a 440 Hz sine-wave tone that orbits the listener using AVAudioEnvironmentNode.
+/// Manages one spatial audio source per planet, all orbiting the listener
+/// (positioned at the origin — the centre of the solar system).
 @MainActor
 @Observable
-final class SpatialAudioEngine {
+final class SolarSystemEngine {
 
     // MARK: - Observable state
 
-    /// Current angle of the sound source, in radians (0 = right, counter-clockwise).
-    private(set) var angle: Double = 0
-    /// Whether the engine is currently playing.
+    /// Current parametric angle (radians) for each planet, keyed by name.
+    private(set) var angles: [String: Double] = Dictionary(
+        uniqueKeysWithValues: Planet.all.map { ($0.name, 0.0) }
+    )
     private(set) var isPlaying = false
-
-    // MARK: - Audio graph
-
-    @ObservationIgnored private let engine = AVAudioEngine()
-    @ObservationIgnored private let player = AVAudioPlayerNode()
-    @ObservationIgnored private let environment = AVAudioEnvironmentNode()
 
     // MARK: - Orbit parameters
 
-    /// Semi-major axis of the elliptical orbit in metres.
-    let semiMajorAxis: Float = 2.0
-    /// Semi-minor axis of the elliptical orbit in metres.
-    let semiMinorAxis: Float = 1.6
-    /// Distance from ellipse centre to each focus (listener sits at one focus).
-    var focalDistance: Float { sqrt(semiMajorAxis * semiMajorAxis - semiMinorAxis * semiMinorAxis) }
-    /// Time in seconds for one full revolution.
-    let revolutionDuration: Double = 8
+    /// Seconds Mercury takes to complete one full orbit.
+    /// All other planets scale proportionally by Kepler's third law.
+    let mercuryRevolutionDuration: Double = 10
+
+    /// Maps a semi-major axis in AU to a 3D audio radius in metres.
+    ///
+    /// Swap this closure to experiment with different perceptual scales.
+    /// The default is a logarithmic mapping: Neptune → 4 m, Mercury → 0.4 m.
+    var audioDistanceScale: (Double) -> Double = { au in
+        let maxAU = 30.07   // Neptune
+        let t = log(1 + au) / log(1 + maxAU)   // normalised 0…1
+        return 0.4 + t * 3.6                    // 0.4 m … 4.0 m
+    }
+
+    // MARK: - Audio graph
+
+    @ObservationIgnored private let engine      = AVAudioEngine()
+    @ObservationIgnored private let environment = AVAudioEnvironmentNode()
+    @ObservationIgnored private var playerNodes: [String: AVAudioPlayerNode] = [:]
 
     // MARK: - Animation
 
     @ObservationIgnored private var orbitTimer: Timer?
-    @ObservationIgnored private var startDate: Date?
+    @ObservationIgnored private var startDate:  Date?
 
     // MARK: - Init
 
@@ -47,23 +54,23 @@ final class SpatialAudioEngine {
     func play() {
         guard !isPlaying else { return }
         try? engine.start()
-        scheduleSineBuffer()
-        player.play()
+        for planet in Planet.all {
+            scheduleTone(for: planet)
+            playerNodes[planet.name]?.play()
+        }
         startOrbiting()
         isPlaying = true
     }
 
     func stop() {
         guard isPlaying else { return }
-        player.stop()
+        for node in playerNodes.values { node.stop() }
         engine.stop()
         stopOrbiting()
         isPlaying = false
     }
 
-    func toggle() {
-        isPlaying ? stop() : play()
-    }
+    func toggle() { isPlaying ? stop() : play() }
 
     // MARK: - Private – audio setup
 
@@ -76,39 +83,40 @@ final class SpatialAudioEngine {
     }
 
     private func buildGraph() {
-        engine.attach(player)
         engine.attach(environment)
-
-        // Mono player → environment → mainMixerNode
-        let monoFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-        engine.connect(player, to: environment, format: monoFormat)
-        engine.connect(environment, to: engine.mainMixerNode, format: nil)
-
-        // Listener stays at the origin (default); enable HRTF rendering.
-        environment.listenerPosition = AVAudio3DPoint(x: 0, y: 0, z: 0)
-        environment.renderingAlgorithm = .HRTF
+        environment.listenerPosition    = AVAudio3DPoint(x: 0, y: 0, z: 0)
+        environment.renderingAlgorithm  = .HRTF
         environment.reverbParameters.enable = true
-        environment.reverbParameters.level = -10
+        environment.reverbParameters.level  = -20
 
-        // Place player node at periapsis (θ=0) of the ellipse.
-        player.position = AVAudio3DPoint(x: semiMajorAxis - focalDistance, y: 0, z: 0)
+        let monoFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
+        for planet in Planet.all {
+            let node = AVAudioPlayerNode()
+            engine.attach(node)
+            engine.connect(node, to: environment, format: monoFormat)
+            playerNodes[planet.name] = node
+            // Start at periapsis (θ = 0).
+            let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
+            let c = a * Float(planet.eccentricity)
+            node.position = AVAudio3DPoint(x: a - c, y: 0, z: 0)
+        }
+        engine.connect(environment, to: engine.mainMixerNode, format: nil)
     }
 
     // MARK: - Private – tone generation
 
-    private func makeSineBuffer(frequency: Double = 440,
+    private func makeSineBuffer(frequency: Double,
                                 sampleRate: Double = 44100,
-                                durationSeconds: Double = 2) -> AVAudioPCMBuffer {
-        let frameCount = AVAudioFrameCount(sampleRate * durationSeconds)
+                                duration: Double = 2) -> AVAudioPCMBuffer {
+        let frameCount = AVAudioFrameCount(sampleRate * duration)
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
         buffer.frameLength = frameCount
         let data = buffer.floatChannelData![0]
         let twoPi = 2.0 * Double.pi
+        let fadeSamples = 512
         for i in 0..<Int(frameCount) {
-            // Soft fade-in / fade-out over 512 samples to avoid clicks on loop.
             let fade: Float
-            let fadeSamples = 512
             if i < fadeSamples {
                 fade = Float(i) / Float(fadeSamples)
             } else if i >= Int(frameCount) - fadeSamples {
@@ -116,25 +124,22 @@ final class SpatialAudioEngine {
             } else {
                 fade = 1
             }
-            data[i] = Float(sin(twoPi * frequency * Double(i) / sampleRate)) * 0.5 * fade
+            data[i] = Float(sin(twoPi * frequency * Double(i) / sampleRate)) * 0.12 * fade
         }
         return buffer
     }
 
-    private func scheduleSineBuffer() {
-        let buffer = makeSineBuffer()
-        player.scheduleBuffer(buffer, at: nil, options: .loops)
+    private func scheduleTone(for planet: Planet) {
+        let buffer = makeSineBuffer(frequency: planet.audioFrequency)
+        playerNodes[planet.name]?.scheduleBuffer(buffer, at: nil, options: .loops)
     }
 
     // MARK: - Private – orbit animation
 
     private func startOrbiting() {
         startDate = Date()
-        // ~60 fps timer; works on both iOS and macOS.
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateOrbit()
-            }
+            Task { @MainActor [weak self] in self?.updateOrbits() }
         }
         RunLoop.main.add(timer, forMode: .common)
         orbitTimer = timer
@@ -146,16 +151,30 @@ final class SpatialAudioEngine {
         startDate = nil
     }
 
-    private func updateOrbit() {
+    private func updateOrbits() {
         guard let start = startDate else { return }
         let elapsed = Date().timeIntervalSince(start)
-        let fraction = elapsed.truncatingRemainder(dividingBy: revolutionDuration) / revolutionDuration
-        let theta = fraction * 2 * .pi
-        angle = theta
 
-        // Ellipse with listener at focus: x = a·cos(θ) − c,  z = b·sin(θ)
-        let x = Float(cos(theta)) * semiMajorAxis - focalDistance
-        let z = Float(sin(theta)) * semiMinorAxis   // z = depth axis; y = height
-        player.position = AVAudio3DPoint(x: x, y: 0, z: z)
+        // Mercury's angular velocity in rad/s.
+        let ωMercury = 2.0 * Double.pi / mercuryRevolutionDuration
+
+        for planet in Planet.all {
+            // Each planet's ω scales by the ratio of Mercury's period to its own
+            // (shorter period = faster angular velocity).
+            let ω = ωMercury * (0.241 / planet.orbitalPeriodYears)
+            let θ = ω * elapsed
+            angles[planet.name] = θ
+
+            // 3D position: listener (sun) at origin, planet on ellipse.
+            // x = a·cos(θ) − c   z = b·sin(θ)
+            let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
+            let b = a * Float(sqrt(1.0 - planet.eccentricity * planet.eccentricity))
+            let c = a * Float(planet.eccentricity)
+            playerNodes[planet.name]?.position = AVAudio3DPoint(
+                x: a * Float(cos(θ)) - c,
+                y: 0,
+                z: b * Float(sin(θ))
+            )
+        }
     }
 }

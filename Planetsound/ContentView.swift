@@ -1,127 +1,123 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var audio = SpatialAudioEngine()
+    @State private var engine = SolarSystemEngine()
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            VStack(spacing: 32) {
+            VStack(spacing: 0) {
                 Text("Planetsound")
-                    .font(.system(size: 28, weight: .thin, design: .rounded))
+                    .font(.system(size: 26, weight: .thin, design: .rounded))
                     .foregroundStyle(.white)
+                    .padding(.top, 20)
 
-                OrbitView(angle: audio.angle,
-                          semiMajorAxis: Double(audio.semiMajorAxis),
-                          semiMinorAxis: Double(audio.semiMinorAxis))
-                    .frame(width: 300, height: 220)
+                SolarSystemView(angles: engine.angles)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                infoRow
-
-                playButton
+                footer
             }
-            .padding()
         }
     }
 
-    // MARK: - Sub-views
-
-    private var infoRow: some View {
-        HStack(spacing: 24) {
-            Label("440 Hz", systemImage: "waveform")
+    private var footer: some View {
+        HStack(spacing: 40) {
             Label("HRTF", systemImage: "ear")
-            Label(String(format: "%.0f°", audio.angle * 180 / .pi),
-                  systemImage: "arrow.triangle.2.circlepath")
+
+            Button(action: { engine.toggle() }) {
+                Image(systemName: engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(engine.isPlaying ? Color.yellow : Color.white)
+                    .symbolEffect(.bounce, value: engine.isPlaying)
+            }
+            .buttonStyle(.plain)
+
+            Label("8 worlds", systemImage: "globe")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-    }
-
-    private var playButton: some View {
-        Button(action: { audio.toggle() }) {
-            Image(systemName: audio.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(audio.isPlaying ? Color.cyan : Color.white)
-                .symbolEffect(.bounce, value: audio.isPlaying)
-        }
-        .buttonStyle(.plain)
+        .padding(.bottom, 24)
     }
 }
 
-// MARK: - Orbit visualisation
+// MARK: - Solar System Canvas
 
-struct OrbitView: View {
-    let angle: Double        // radians; parametric angle on the ellipse
-    let semiMajorAxis: Double
-    let semiMinorAxis: Double
-
-    private let listenerRadius: CGFloat = 14
-    private let sourceRadius: CGFloat   = 10
+struct SolarSystemView: View {
+    let angles: [String: Double]
 
     var body: some View {
         GeometryReader { geo in
-            // Scale so the full ellipse fits with padding.
-            let padding = sourceRadius + 4
-            let a = geo.size.width  / 2 - padding   // semi-major in screen pts
-            let b = a * (semiMinorAxis / semiMajorAxis) // semi-minor, preserving ratio
-            let c = sqrt(a * a - b * b)               // focal distance in screen pts
+            let shortSide  = min(geo.size.width, geo.size.height)
+            let maxRadius  = shortSide / 2 - 20           // Neptune's orbit fits here
+            let centre     = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let maxAU      = Planet.all.last!.semiMajorAxisAU   // 30.07 AU (Neptune)
 
-            // Ellipse is centred on the canvas; listener sits at the right focus.
-            let ellipseCentre = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
-            let listenerPt    = CGPoint(x: ellipseCentre.x + c, y: ellipseCentre.y)
-
-            // Source parametric position (ellipse centred at ellipseCentre).
-            let sx = ellipseCentre.x + a * CGFloat(cos(angle))
-            let sy = ellipseCentre.y + b * CGFloat(sin(angle))
-            let sourcePt = CGPoint(x: sx, y: sy)
+            /// Maps AU → screen points using the same logarithmic formula as the
+            /// audio engine. Swap `log(1 + x)` for `sqrt(x)` or `x` to experiment.
+            func vr(_ au: Double) -> CGFloat {
+                CGFloat(log(1 + au) / log(1 + maxAU)) * maxRadius
+            }
 
             Canvas { ctx, _ in
-                // ── Orbit ellipse ────────────────────────────────────────
-                let ringRect = CGRect(x: ellipseCentre.x - a,
-                                     y: ellipseCentre.y - b,
-                                     width: a * 2, height: b * 2)
-                ctx.stroke(Path(ellipseIn: ringRect),
-                           with: .color(.white.opacity(0.15)),
-                           style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
+                // ── Sun (listener) ───────────────────────────────────────
+                let sr: CGFloat = 7
+                ctx.fill(Path(ellipseIn: CGRect(x: centre.x - sr * 3, y: centre.y - sr * 3,
+                                               width: sr * 6, height: sr * 6)),
+                         with: .color(.yellow.opacity(0.12)))
+                ctx.fill(Path(ellipseIn: CGRect(x: centre.x - sr * 1.6, y: centre.y - sr * 1.6,
+                                               width: sr * 3.2, height: sr * 3.2)),
+                         with: .color(.yellow.opacity(0.3)))
+                ctx.fill(Path(ellipseIn: CGRect(x: centre.x - sr, y: centre.y - sr,
+                                               width: sr * 2, height: sr * 2)),
+                         with: .color(.yellow.opacity(0.95)))
 
-                // ── Listener (user) at focus ──────────────────────────────
-                let listenerRect = CGRect(x: listenerPt.x - listenerRadius,
-                                         y: listenerPt.y - listenerRadius,
-                                         width: listenerRadius * 2,
-                                         height: listenerRadius * 2)
-                ctx.fill(Path(ellipseIn: listenerRect),
-                         with: .color(.white.opacity(0.9)))
+                // ── Orbits + planets ─────────────────────────────────────
+                for planet in Planet.all {
+                    let a = vr(planet.semiMajorAxisAU)
+                    let b = a * CGFloat(sqrt(1 - planet.eccentricity * planet.eccentricity))
+                    let c = a * CGFloat(planet.eccentricity)
 
-                let youLabel = Text("You").font(.system(size: 9, weight: .semibold))
-                ctx.draw(youLabel,
-                         at: CGPoint(x: listenerPt.x, y: listenerPt.y + listenerRadius + 8))
+                    // Sun is at the right focus → ellipse centre is c to the left.
+                    let ex = centre.x - c
 
-                // ── Sound source ─────────────────────────────────────────
-                let glowRect = CGRect(x: sourcePt.x - sourceRadius * 2,
-                                     y: sourcePt.y - sourceRadius * 2,
-                                     width: sourceRadius * 4,
-                                     height: sourceRadius * 4)
-                ctx.fill(Path(ellipseIn: glowRect),
-                         with: .color(.cyan.opacity(0.2)))
+                    // Orbit ring
+                    ctx.stroke(
+                        Path(ellipseIn: CGRect(x: ex - a, y: centre.y - b,
+                                              width: a * 2, height: b * 2)),
+                        with: .color(.white.opacity(0.12)),
+                        style: StrokeStyle(lineWidth: 0.5)
+                    )
 
-                let sourceRect = CGRect(x: sourcePt.x - sourceRadius,
-                                        y: sourcePt.y - sourceRadius,
-                                        width: sourceRadius * 2,
-                                        height: sourceRadius * 2)
-                ctx.fill(Path(ellipseIn: sourceRect), with: .color(.cyan))
+                    // Planet position on the ellipse (parametric angle θ)
+                    let θ  = angles[planet.name] ?? 0
+                    let px = ex + a * CGFloat(cos(θ))
+                    let py = centre.y + b * CGFloat(sin(θ))
+                    let r  = planet.displayRadius
 
-                let hzText = Text("440 Hz").font(.system(size: 8))
-                ctx.draw(hzText,
-                         at: CGPoint(x: sourcePt.x, y: sourcePt.y - sourceRadius - 7),
-                         anchor: .center)
+                    // Glow
+                    ctx.fill(
+                        Path(ellipseIn: CGRect(x: px - r * 2.5, y: py - r * 2.5,
+                                              width: r * 5, height: r * 5)),
+                        with: .color(planet.color.opacity(0.2))
+                    )
 
-                // ── Line from focus (listener) to source ─────────────────
-                var line = Path()
-                line.move(to: listenerPt)
-                line.addLine(to: sourcePt)
-                ctx.stroke(line, with: .color(.cyan.opacity(0.25)),
-                           style: StrokeStyle(lineWidth: 1))
+                    // Sphere
+                    ctx.fill(
+                        Path(ellipseIn: CGRect(x: px - r, y: py - r,
+                                              width: r * 2, height: r * 2)),
+                        with: .color(planet.color)
+                    )
+
+                    // Label — only drawn if there is room (outer planets are larger)
+                    ctx.draw(
+                        Text(planet.name)
+                            .font(.system(size: 7))
+                            .foregroundStyle(.white.opacity(0.6)),
+                        at: CGPoint(x: px, y: py + r + 7),
+                        anchor: .center
+                    )
+                }
             }
         }
     }

@@ -19,22 +19,6 @@ struct Planet: Identifiable {
     /// Semi-minor axis, preserving the real eccentricity.
     var semiMinorAxisAU: Double { semiMajorAxisAU * sqrt(1 - eccentricity * eccentricity) }
 
-    // MARK: - Frequency mapping
-
-    /// Audio frequency derived from orbital period ratios.
-    ///
-    /// Orbital frequencies (1/T) are log-mapped onto a 3-octave range
-    /// (110 Hz … 880 Hz) so that planets with near-resonant periods
-    /// produce near-harmonic intervals.
-    var audioFrequency: Double {
-        // Fixed reference periods (Mercury fastest, Neptune slowest).
-        let logFastest = log(1.0 / 0.241)   // Mercury
-        let logSlowest = log(1.0 / 164.8)   // Neptune
-        let logThis    = log(1.0 / orbitalPeriodYears)
-        let t = (logThis - logSlowest) / (logFastest - logSlowest)  // 0…1
-        return 110.0 * pow(8.0, t)   // 110 Hz (Neptune) … 880 Hz (Mercury)
-    }
-
     // MARK: - Orbital data (IAU mean values)
 
     static let all: [Planet] = [
@@ -62,5 +46,8 @@ struct Planet: Identifiable {
         Planet(name: "Neptune",
                semiMajorAxisAU: 30.07, eccentricity: 0.010, orbitalPeriodYears: 164.8,
                color: Color(red: 0.20, green: 0.35, blue: 0.95), displayRadius: 7),
+        Planet(name: "Pluto",
+               semiMajorAxisAU: 39.48, eccentricity: 0.249, orbitalPeriodYears: 248.0,
+               color: Color(red: 0.72, green: 0.62, blue: 0.55), displayRadius: 3),
     ]
 }

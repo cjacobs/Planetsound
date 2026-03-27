@@ -21,15 +21,7 @@ final class SolarSystemEngine {
     /// All other planets scale proportionally by Kepler's third law.
     let mercuryRevolutionDuration: Double = 10
 
-    /// Maps a semi-major axis in AU to a 3D audio radius in metres.
-    ///
-    /// Swap this closure to experiment with different perceptual scales.
-    /// The default is a logarithmic mapping: Neptune → 4 m, Mercury → 0.4 m.
-    var audioDistanceScale: (Double) -> Double = { au in
-        let maxAU = 30.07   // Neptune
-        let t = log(1 + au) / log(1 + maxAU)   // normalised 0…1
-        return 0.4 + t * 3.6                    // 0.4 m … 4.0 m
-    }
+    let mapping = ScaleMapping.default
 
     // MARK: - Audio graph
 
@@ -96,7 +88,7 @@ final class SolarSystemEngine {
             engine.connect(node, to: environment, format: monoFormat)
             playerNodes[planet.name] = node
             // Start at periapsis (θ = 0).
-            let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
+            let a = Float(mapping.audioDistance(au: planet.semiMajorAxisAU))
             let c = a * Float(planet.eccentricity)
             node.position = AVAudio3DPoint(x: a - c, y: 0, z: 0)
         }
@@ -108,29 +100,23 @@ final class SolarSystemEngine {
     private func makeSineBuffer(frequency: Double,
                                 sampleRate: Double = 44100,
                                 duration: Double = 2) -> AVAudioPCMBuffer {
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
+        // Use an exact integer number of wave cycles so the buffer loops
+        // seamlessly without any phase discontinuity.
+        let wholeCycles = max(1, Int(frequency * duration))
+        let frameCount  = AVAudioFrameCount(Double(wholeCycles) / frequency * sampleRate)
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
         buffer.frameLength = frameCount
         let data = buffer.floatChannelData![0]
         let twoPi = 2.0 * Double.pi
-        let fadeSamples = 512
         for i in 0..<Int(frameCount) {
-            let fade: Float
-            if i < fadeSamples {
-                fade = Float(i) / Float(fadeSamples)
-            } else if i >= Int(frameCount) - fadeSamples {
-                fade = Float(Int(frameCount) - i) / Float(fadeSamples)
-            } else {
-                fade = 1
-            }
-            data[i] = Float(sin(twoPi * frequency * Double(i) / sampleRate)) * 0.12 * fade
+            data[i] = Float(sin(twoPi * frequency * Double(i) / sampleRate)) * 0.12
         }
         return buffer
     }
 
     private func scheduleTone(for planet: Planet) {
-        let buffer = makeSineBuffer(frequency: planet.audioFrequency)
+        let buffer = makeSineBuffer(frequency: mapping.audioFrequency(orbitalPeriodYears: planet.orbitalPeriodYears))
         playerNodes[planet.name]?.scheduleBuffer(buffer, at: nil, options: .loops)
     }
 
@@ -167,7 +153,7 @@ final class SolarSystemEngine {
 
             // 3D position: listener (sun) at origin, planet on ellipse.
             // x = a·cos(θ) − c   z = b·sin(θ)
-            let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
+            let a = Float(mapping.audioDistance(au: planet.semiMajorAxisAU))
             let b = a * Float(sqrt(1.0 - planet.eccentricity * planet.eccentricity))
             let c = a * Float(planet.eccentricity)
             playerNodes[planet.name]?.position = AVAudio3DPoint(

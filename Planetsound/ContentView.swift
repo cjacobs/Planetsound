@@ -8,10 +8,17 @@ struct ContentView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                Text("Planetsound")
-                    .font(.system(size: 26, weight: .thin, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.top, 20)
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text("Planet")
+                        .font(.system(size: 26, weight: .thin, design: .rounded))
+                    Text("*")
+                        .font(.system(size: 16, weight: .light, design: .rounded))
+                        .baselineOffset(10)
+                    Text("sound")
+                        .font(.system(size: 26, weight: .thin, design: .rounded))
+                }
+                .foregroundStyle(.white)
+                .padding(.top, 20)
 
                 SolarSystemView(angles: engine.angles)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -33,7 +40,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
 
-            Label("8 worlds", systemImage: "globe")
+            Label("9 worlds", systemImage: "globe")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -49,15 +56,9 @@ struct SolarSystemView: View {
     var body: some View {
         GeometryReader { geo in
             let shortSide  = min(geo.size.width, geo.size.height)
-            let maxRadius  = shortSide / 2 - 20           // Neptune's orbit fits here
+            let maxRadius  = shortSide / 2 - 20
             let centre     = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
-            let maxAU      = Planet.all.last!.semiMajorAxisAU   // 30.07 AU (Neptune)
-
-            /// Maps AU → screen points using the same logarithmic formula as the
-            /// audio engine. Swap `log(1 + x)` for `sqrt(x)` or `x` to experiment.
-            let vr = { (au: Double) -> CGFloat in
-                CGFloat(log(1 + au) / log(1 + maxAU)) * maxRadius
-            }
+            let mapping    = ScaleMapping.default
 
             Canvas { ctx, _ in
                 // ── Sun (listener) ───────────────────────────────────────
@@ -74,7 +75,7 @@ struct SolarSystemView: View {
 
                 // ── Orbits + planets ─────────────────────────────────────
                 for planet in Planet.all {
-                    let a = vr(planet.semiMajorAxisAU)
+                    let a = mapping.screenRadius(au: planet.semiMajorAxisAU, maxRadius: maxRadius)
                     let b = a * CGFloat(sqrt(1 - planet.eccentricity * planet.eccentricity))
                     let c = a * CGFloat(planet.eccentricity)
 

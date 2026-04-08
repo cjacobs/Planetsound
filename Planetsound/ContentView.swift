@@ -60,11 +60,15 @@ struct ContentView: View {
                 } label: {
                     Text(planetAbbreviation(planet.name))
                         .font(.system(size: 9, weight: .medium, design: .rounded))
-                        .foregroundStyle(enabled ? .white : .white.opacity(0.3))
+                        .foregroundStyle(enabled ? .white : .white.opacity(0.35))
                         .frame(width: 28, height: 22)
                         .background(
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(planet.color.opacity(enabled ? 0.7 : 0.15))
+                                .fill(enabled ? planet.color.opacity(0.7) : Color.white.opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5)
+                                .strokeBorder(enabled ? Color.clear : Color.white.opacity(0.25))
                         )
                 }
                 .buttonStyle(.plain)
@@ -73,16 +77,29 @@ struct ContentView: View {
     }
 
     private var generatorPicker: some View {
-        Picker("Generator", selection: Binding(
-            get: { engine.generator },
-            set: { engine.setGenerator($0) }
-        )) {
+        HStack(spacing: 4) {
             ForEach(SoundGenerator.allCases) { gen in
-                Text(gen.label).tag(gen)
+                let selected = engine.generator == gen
+                Button {
+                    engine.setGenerator(gen)
+                } label: {
+                    Text(gen.label)
+                        .font(.system(size: 10, weight: selected ? .semibold : .regular, design: .rounded))
+                        .foregroundStyle(selected ? .white : .white.opacity(0.5))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(selected ? Color.white.opacity(0.2) : Color.white.opacity(0.06))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(selected ? Color.white.opacity(0.4) : Color.white.opacity(0.2))
+                        )
+                }
+                .buttonStyle(.plain)
             }
         }
-        .pickerStyle(.segmented)
-        .frame(width: 180)
     }
 
     private func planetAbbreviation(_ name: String) -> String {

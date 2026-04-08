@@ -73,6 +73,7 @@ struct Planet: Identifiable {
                color: Color(red: 0.20, green: 0.35, blue: 0.95), displayRadius: 7),
         Planet(name: "Pluto",
                semiMajorAxisAU: 39.48, eccentricity: 0.249, orbitalPeriodYears: 248.0,
+               massEarthMasses: 0.0022,
                color: Color(red: 0.72, green: 0.62, blue: 0.55), displayRadius: 3),
     ]
 }

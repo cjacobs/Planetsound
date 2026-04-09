@@ -9,7 +9,7 @@ enum StartingConfiguration: String, CaseIterable {
 }
 
 /// Manages one spatial audio source per planet, all orbiting the listener
-/// (positioned at the origin — the centre of the solar system).
+/// (positioned at the origin — the center of the solar system).
 @MainActor
 @Observable
 final class SolarSystemEngine {
@@ -32,6 +32,13 @@ final class SolarSystemEngine {
 
     // Per-planet phase offsets (radians) applied at t = 0.
     @ObservationIgnored private var angleOffsets: [String: Double] = [:]
+    /// Per-planet mute state. `true` means the planet is audible.
+    var planetEnabled: [String: Bool] = Dictionary(
+        uniqueKeysWithValues: Planet.all.map { ($0.name, true) }
+    )
+
+    /// The active sound generation strategy.
+    private(set) var generator: SoundGenerator = .sine
 
     // MARK: - Orbit parameters
 
@@ -134,6 +141,23 @@ final class SolarSystemEngine {
             let rad = meanAnomalyDeg * .pi / 180
             return (planet.name, rad)
         })
+    /// Mutes or unmutes a single planet by setting its player node volume.
+    func setPlanetEnabled(_ name: String, enabled: Bool) {
+        planetEnabled[name] = enabled
+        playerNodes[name]?.volume = enabled ? 1.0 : 0.0
+    }
+
+    /// Switches the sound generator and re-schedules all currently playing buffers.
+    func setGenerator(_ newGenerator: SoundGenerator) {
+        guard newGenerator != generator else { return }
+        generator = newGenerator
+        guard isPlaying else { return }
+        for planet in Planet.all {
+            guard let node = playerNodes[planet.name] else { continue }
+            node.stop()
+            scheduleTone(for: planet)
+            node.play()
+        }
     }
 
     // MARK: - Private – audio setup
@@ -208,8 +232,18 @@ final class SolarSystemEngine {
     }
 
     private func scheduleTone(for planet: Planet) {
-        let buffer = makeSineBuffer(frequency: planet.audioFrequency)
+        let freq = mapping.audioFrequency(orbitalPeriodYears: planet.orbitalPeriodYears)
+        let buffer = generator.makeBuffer(
+            frequency: freq,
+            blipRate: angularVelocity(for: planet)
+        )
         playerNodes[planet.name]?.scheduleBuffer(buffer, at: nil, options: .loops)
+    }
+
+    /// Angular velocity in rad/s for the given planet.
+    private func angularVelocity(for planet: Planet) -> Double {
+        let omegaMercury = 2.0 * Double.pi / mercuryRevolutionDuration
+        return omegaMercury * (0.241 / planet.orbitalPeriodYears)
     }
 
     // MARK: - Private – orbit animation
@@ -235,9 +269,6 @@ final class SolarSystemEngine {
     private func updateOrbits() {
         guard let start = startDate else { return }
         let elapsed = Date().timeIntervalSince(start)
-
-        // Mercury's angular velocity in rad/s.
-        let ωMercury = 2.0 * Double.pi / mercuryRevolutionDuration
 
         for planet in Planet.all {
             // Each planet's angular velocity scales inversely with its period.

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		447E094F2F770CB800B20957 /* ScaleMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447E094E2F770CB800B20957 /* ScaleMapping.swift */; };
+		447E09512F7714FD00B20957 /* SoundGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 447E09502F7714FD00B20957 /* SoundGenerator.swift */; };
 		AA000020000000000000000A /* PlanetsoundApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000010000000000000000A /* PlanetsoundApp.swift */; };
 		AA000021000000000000000A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000011000000000000000A /* ContentView.swift */; };
 		AA000022000000000000000A /* SpatialAudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000012000000000000000A /* SpatialAudioEngine.swift */; };
@@ -16,6 +18,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		447E094E2F770CB800B20957 /* ScaleMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScaleMapping.swift; sourceTree = "<group>"; };
+		447E09502F7714FD00B20957 /* SoundGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundGenerator.swift; sourceTree = "<group>"; };
 		AA000006000000000000000A /* Planetsound.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Planetsound.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000010000000000000000A /* PlanetsoundApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanetsoundApp.swift; sourceTree = "<group>"; };
 		AA000011000000000000000A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -56,6 +60,8 @@
 				BB000015000000000000000B /* Planet.swift */,
 				AA000013000000000000000A /* Assets.xcassets */,
 				AA000014000000000000000A /* Info.plist */,
+				447E094E2F770CB800B20957 /* ScaleMapping.swift */,
+				447E09502F7714FD00B20957 /* SoundGenerator.swift */,
 			);
 			path = Planetsound;
 			sourceTree = "<group>";
@@ -148,6 +154,8 @@
 				AA000021000000000000000A /* ContentView.swift in Sources */,
 				AA000020000000000000000A /* PlanetsoundApp.swift in Sources */,
 				AA000022000000000000000A /* SpatialAudioEngine.swift in Sources */,
+				447E09512F7714FD00B20957 /* SoundGenerator.swift in Sources */,
+				447E094F2F770CB800B20957 /* ScaleMapping.swift in Sources */,
 				BB000025000000000000000B /* Planet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

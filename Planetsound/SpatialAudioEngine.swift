@@ -54,6 +54,8 @@ final class SolarSystemEngine {
     @ObservationIgnored private let engine      = AVAudioEngine()
     @ObservationIgnored private let environment = AVAudioEnvironmentNode()
     @ObservationIgnored private var playerNodes: [String: AVAudioPlayerNode] = [:]
+    /// Actual hardware sample rate, resolved in buildGraph().
+    @ObservationIgnored private var bufferSampleRate: Double = 44100
 
     // MARK: - Animation
 
@@ -72,7 +74,12 @@ final class SolarSystemEngine {
 
     func play() {
         guard !isPlaying else { return }
-        try? engine.start()
+        do {
+            try engine.start()
+        } catch {
+            print("SolarSystemEngine: failed to start audio engine — \(error)")
+            return
+        }
         for planet in Planet.all {
             scheduleTone(for: planet)
             playerNodes[planet.name]?.play()
@@ -134,25 +141,39 @@ final class SolarSystemEngine {
     private func configureAudioSession() {
 #if os(iOS)
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: [])
-        try? session.setActive(true)
+        do {
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true)
+        } catch {
+            print("SolarSystemEngine: audio session configuration failed — \(error)")
+        }
 #endif
     }
 
     private func buildGraph() {
+        // Query the hardware sample rate before building the graph so buffers
+        // are generated at the correct rate and no sample-rate conversion occurs.
+        let hwRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        bufferSampleRate = hwRate > 0 ? hwRate : 44100
+
+        guard let monoFormat = AVAudioFormat(standardFormatWithSampleRate: bufferSampleRate,
+                                             channels: 1) else {
+            print("SolarSystemEngine: failed to create AVAudioFormat")
+            return
+        }
+
         engine.attach(environment)
         environment.listenerPosition    = AVAudio3DPoint(x: 0, y: 0, z: 0)
         environment.renderingAlgorithm  = .HRTF
         environment.reverbParameters.enable = true
         environment.reverbParameters.level  = -20
 
-        let monoFormat = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
         for planet in Planet.all {
             let node = AVAudioPlayerNode()
             engine.attach(node)
             engine.connect(node, to: environment, format: monoFormat)
             playerNodes[planet.name] = node
-            // Start at periapsis (θ = 0).
+            // Start at periapsis (θ = 0); updateOrbits() refines this on first tick.
             let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
             let c = a * Float(planet.eccentricity)
             node.position = AVAudio3DPoint(x: a - c, y: 0, z: 0)
@@ -162,10 +183,10 @@ final class SolarSystemEngine {
 
     // MARK: - Private – tone generation
 
-    private func makeSineBuffer(frequency: Double,
-                                sampleRate: Double = 44100,
-                                duration: Double = 2) -> AVAudioPCMBuffer {
+    private func makeSineBuffer(frequency: Double, duration: Double = 2) -> AVAudioPCMBuffer {
+        let sampleRate = bufferSampleRate
         let frameCount = AVAudioFrameCount(sampleRate * duration)
+        // These initialisers cannot fail for valid sample rates and frame counts.
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
         buffer.frameLength = frameCount
@@ -195,8 +216,11 @@ final class SolarSystemEngine {
 
     private func startOrbiting() {
         startDate = Date()
+        // The timer is added to the main run loop, so the callback executes on
+        // the main thread. MainActor.assumeIsolated lets us call @MainActor
+        // methods directly without spinning up a new Task.
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.updateOrbits() }
+            MainActor.assumeIsolated { self?.updateOrbits() }
         }
         RunLoop.main.add(timer, forMode: .common)
         orbitTimer = timer
@@ -216,10 +240,9 @@ final class SolarSystemEngine {
         let ωMercury = 2.0 * Double.pi / mercuryRevolutionDuration
 
         for planet in Planet.all {
-            // Each planet's ω scales by the ratio of Mercury's period to its own
-            // (shorter period = faster angular velocity).
-            let ω = ωMercury * (0.241 / planet.orbitalPeriodYears)
-            let θ = ω * elapsed + (angleOffsets[planet.name] ?? 0)
+            // Each planet's angular velocity scales inversely with its period.
+            let angularVelocity = ωMercury * (0.241 / planet.orbitalPeriodYears)
+            let θ = angularVelocity * elapsed + (angleOffsets[planet.name] ?? 0)
             angles[planet.name] = θ
 
             // ── 3D position via perifocal → ecliptic rotation ────────────
@@ -230,13 +253,13 @@ final class SolarSystemEngine {
             let xPF = a * Float(cos(θ)) - c   // along major axis (toward perihelion)
             let yPF = b * Float(sin(θ))        // perpendicular in orbital plane
 
-            // Orbital angles (radians)
-            let ω = Float(planet.argumentOfPerihelionDeg  * .pi / 180)
-            let Ω = Float(planet.longitudeOfAscendingNodeDeg * .pi / 180)
-            let i = Float(planet.inclinationDeg * .pi / 180)
-            let (cosΩ, sinΩ) = (cos(Ω), sin(Ω))
-            let (cosω, sinω) = (cos(ω), sin(ω))
-            let (cosi, sini) = (cos(i), sin(i))
+            // Orbital angles (radians) — distinct names to avoid shadowing θ/ω above.
+            let argPeri = Float(planet.argumentOfPerihelionDeg   * .pi / 180)  // ω
+            let ascNode = Float(planet.longitudeOfAscendingNodeDeg * .pi / 180) // Ω
+            let incl    = Float(planet.inclinationDeg              * .pi / 180) // i
+            let (cosΩ, sinΩ) = (cos(ascNode), sin(ascNode))
+            let (cosω, sinω) = (cos(argPeri),  sin(argPeri))
+            let (cosi, sini) = (cos(incl),     sin(incl))
 
             // Rotate to ecliptic frame (standard perifocal transformation):
             let xEcl = xPF * (cosΩ*cosω - sinΩ*sinω*cosi)

@@ -42,9 +42,9 @@ final class SolarSystemEngine {
     /// Maps a semi-major axis in AU to a 3D audio radius in metres.
     ///
     /// Swap this closure to experiment with different perceptual scales.
-    /// The default is a logarithmic mapping: Neptune → 4 m, Mercury → 0.4 m.
+    /// The default is a logarithmic mapping: Pluto → 4 m, Mercury → 0.4 m.
     var audioDistanceScale: (Double) -> Double = { au in
-        let maxAU = 30.07   // Neptune
+        let maxAU = 39.48   // Pluto
         let t = log(1 + au) / log(1 + maxAU)   // normalised 0…1
         return 0.4 + t * 3.6                    // 0.4 m … 4.0 m
     }
@@ -222,15 +222,34 @@ final class SolarSystemEngine {
             let θ = ω * elapsed + (angleOffsets[planet.name] ?? 0)
             angles[planet.name] = θ
 
-            // 3D position: listener (sun) at origin, planet on ellipse.
-            // x = a·cos(θ) − c   z = b·sin(θ)
+            // ── 3D position via perifocal → ecliptic rotation ────────────
+            // In the orbital (perifocal) plane:
             let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
             let b = a * Float(sqrt(1.0 - planet.eccentricity * planet.eccentricity))
             let c = a * Float(planet.eccentricity)
+            let xPF = a * Float(cos(θ)) - c   // along major axis (toward perihelion)
+            let yPF = b * Float(sin(θ))        // perpendicular in orbital plane
+
+            // Orbital angles (radians)
+            let ω = Float(planet.argumentOfPerihelionDeg  * .pi / 180)
+            let Ω = Float(planet.longitudeOfAscendingNodeDeg * .pi / 180)
+            let i = Float(planet.inclinationDeg * .pi / 180)
+            let (cosΩ, sinΩ) = (cos(Ω), sin(Ω))
+            let (cosω, sinω) = (cos(ω), sin(ω))
+            let (cosi, sini) = (cos(i), sin(i))
+
+            // Rotate to ecliptic frame (standard perifocal transformation):
+            let xEcl = xPF * (cosΩ*cosω - sinΩ*sinω*cosi)
+                     + yPF * (-cosΩ*sinω - sinΩ*cosω*cosi)
+            let yEcl = xPF * (sinΩ*cosω + cosΩ*sinω*cosi)
+                     + yPF * (-sinΩ*sinω + cosΩ*cosω*cosi)
+            let zEcl = xPF * (sinω*sini)
+                     + yPF * (cosω*sini)
+
+            // Map ecliptic → AVAudio3DPoint: ecliptic X→audio X,
+            // ecliptic Y→audio Z, ecliptic north (Z)→audio Y (up).
             playerNodes[planet.name]?.position = AVAudio3DPoint(
-                x: a * Float(cos(θ)) - c,
-                y: 0,
-                z: b * Float(sin(θ))
+                x: xEcl, y: zEcl, z: yEcl
             )
         }
     }

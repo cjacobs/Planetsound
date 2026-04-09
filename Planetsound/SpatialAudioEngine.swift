@@ -1,6 +1,13 @@
 import AVFoundation
 import Observation
 
+// MARK: - Starting configuration
+
+enum StartingConfiguration: String, CaseIterable {
+    case realWorld = "Real World"
+    case random    = "Random"
+}
+
 /// Manages one spatial audio source per planet, all orbiting the listener
 /// (positioned at the origin — the centre of the solar system).
 @MainActor
@@ -14,6 +21,17 @@ final class SolarSystemEngine {
         uniqueKeysWithValues: Planet.all.map { ($0.name, 0.0) }
     )
     private(set) var isPlaying = false
+
+    // MARK: - Starting configuration
+
+    /// Controls what angle each planet starts at. Changing this immediately
+    /// updates the visual and (if playing) resets the animation origin.
+    var startingConfiguration: StartingConfiguration = .realWorld {
+        didSet { applyConfiguration() }
+    }
+
+    // Per-planet phase offsets (radians) applied at t = 0.
+    @ObservationIgnored private var angleOffsets: [String: Double] = [:]
 
     // MARK: - Orbit parameters
 
@@ -47,6 +65,7 @@ final class SolarSystemEngine {
     init() {
         configureAudioSession()
         buildGraph()
+        applyConfiguration()   // sets initial angles to real-world positions
     }
 
     // MARK: - Public API
@@ -71,6 +90,44 @@ final class SolarSystemEngine {
     }
 
     func toggle() { isPlaying ? stop() : play() }
+
+    // MARK: - Private – configuration
+
+    private func applyConfiguration() {
+        switch startingConfiguration {
+        case .realWorld:
+            angleOffsets = realWorldOffsets()
+        case .random:
+            angleOffsets = Dictionary(uniqueKeysWithValues:
+                Planet.all.map { ($0.name, Double.random(in: 0 ..< 2 * .pi)) }
+            )
+        }
+        // Reflect in the visual immediately.
+        for planet in Planet.all {
+            angles[planet.name] = angleOffsets[planet.name] ?? 0
+        }
+        // If already animating, reset the clock so elapsed restarts from 0
+        // with the new offsets as the starting positions.
+        if isPlaying { startDate = Date() }
+    }
+
+    /// Computes each planet's mean anomaly at the current date using J2000
+    /// orbital elements and the planet's mean daily motion.
+    private func realWorldOffsets() -> [String: Double] {
+        // J2000.0 = 2000-Jan-01 12:00 UTC (Unix timestamp 946728000)
+        let j2000 = Date(timeIntervalSince1970: 946_728_000)
+        let daysSinceJ2000 = Date().timeIntervalSince(j2000) / 86_400
+
+        return Dictionary(uniqueKeysWithValues: Planet.all.map { planet in
+            // Advance the mean longitude from J2000 to today.
+            let currentLongDeg = planet.meanLongitudeJ2000Deg
+                + planet.meanMotionDegPerDay * daysSinceJ2000
+            // Mean anomaly = mean longitude − longitude of perihelion.
+            let meanAnomalyDeg = currentLongDeg - planet.longitudeOfPerihelionDeg
+            let rad = meanAnomalyDeg * .pi / 180
+            return (planet.name, rad)
+        })
+    }
 
     // MARK: - Private – audio setup
 
@@ -162,7 +219,7 @@ final class SolarSystemEngine {
             // Each planet's ω scales by the ratio of Mercury's period to its own
             // (shorter period = faster angular velocity).
             let ω = ωMercury * (0.241 / planet.orbitalPeriodYears)
-            let θ = ω * elapsed
+            let θ = ω * elapsed + (angleOffsets[planet.name] ?? 0)
             angles[planet.name] = θ
 
             // 3D position: listener (sun) at origin, planet on ellipse.

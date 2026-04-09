@@ -11,6 +11,11 @@ struct Planet: Identifiable {
     let orbitalPeriodYears: Double
     /// Mass relative to Earth (Earth = 1).
     let massEarthMasses: Double
+    /// Mean ecliptic longitude at the J2000.0 epoch (degrees).
+    let meanLongitudeJ2000Deg: Double
+    /// Longitude of perihelion at J2000.0 (degrees). Used to convert mean
+    /// longitude to mean anomaly: M = L − ω̄.
+    let longitudeOfPerihelionDeg: Double
     /// Display colour for the orbit view.
     let color: Color
     /// Radius of the planet sphere in the orbit canvas (points).
@@ -20,6 +25,16 @@ struct Planet: Identifiable {
 
     /// Semi-minor axis, preserving the real eccentricity.
     var semiMinorAxisAU: Double { semiMajorAxisAU * sqrt(1 - eccentricity * eccentricity) }
+
+    /// Mean motion in degrees per day, derived from the orbital period.
+    var meanMotionDegPerDay: Double { 360.0 / (orbitalPeriodYears * 365.25) }
+
+    /// Mean anomaly at the J2000.0 epoch (radians).
+    var meanAnomalyJ2000Rad: Double {
+        let deg = (meanLongitudeJ2000Deg - longitudeOfPerihelionDeg)
+            .truncatingRemainder(dividingBy: 360)
+        return deg * .pi / 180
+    }
 
     // MARK: - Frequency mapping
 
@@ -39,37 +54,46 @@ struct Planet: Identifiable {
     // MARK: - Orbital data (IAU mean values)
 
     static let all: [Planet] = [
+        // J2000 elements from Standish (1992) / JPL.
         Planet(name: "Mercury",
                semiMajorAxisAU: 0.387, eccentricity: 0.206, orbitalPeriodYears: 0.241,
                massEarthMasses: 0.0553,
+               meanLongitudeJ2000Deg: 252.251, longitudeOfPerihelionDeg: 77.456,
                color: .gray, displayRadius: 4),
         Planet(name: "Venus",
                semiMajorAxisAU: 0.723, eccentricity: 0.007, orbitalPeriodYears: 0.615,
                massEarthMasses: 0.815,
+               meanLongitudeJ2000Deg: 181.980, longitudeOfPerihelionDeg: 131.564,
                color: Color(red: 0.90, green: 0.80, blue: 0.55), displayRadius: 6),
         Planet(name: "Earth",
                semiMajorAxisAU: 1.000, eccentricity: 0.017, orbitalPeriodYears: 1.000,
                massEarthMasses: 1.000,
+               meanLongitudeJ2000Deg: 100.464, longitudeOfPerihelionDeg: 102.937,
                color: Color(red: 0.25, green: 0.55, blue: 1.00), displayRadius: 6),
         Planet(name: "Mars",
                semiMajorAxisAU: 1.524, eccentricity: 0.093, orbitalPeriodYears: 1.881,
                massEarthMasses: 0.1075,
+               meanLongitudeJ2000Deg: 355.433, longitudeOfPerihelionDeg: 336.060,
                color: Color(red: 0.85, green: 0.40, blue: 0.20), displayRadius: 5),
         Planet(name: "Jupiter",
                semiMajorAxisAU: 5.203, eccentricity: 0.049, orbitalPeriodYears: 11.86,
                massEarthMasses: 317.8,
+               meanLongitudeJ2000Deg: 34.352, longitudeOfPerihelionDeg: 14.331,
                color: Color(red: 0.85, green: 0.70, blue: 0.50), displayRadius: 11),
         Planet(name: "Saturn",
                semiMajorAxisAU: 9.537, eccentricity: 0.057, orbitalPeriodYears: 29.46,
                massEarthMasses: 95.16,
+               meanLongitudeJ2000Deg: 50.077, longitudeOfPerihelionDeg: 93.057,
                color: Color(red: 0.90, green: 0.85, blue: 0.60), displayRadius: 9),
         Planet(name: "Uranus",
                semiMajorAxisAU: 19.19, eccentricity: 0.046, orbitalPeriodYears: 84.01,
                massEarthMasses: 14.54,
+               meanLongitudeJ2000Deg: 314.055, longitudeOfPerihelionDeg: 173.005,
                color: Color(red: 0.50, green: 0.85, blue: 0.90), displayRadius: 7),
         Planet(name: "Neptune",
                semiMajorAxisAU: 30.07, eccentricity: 0.010, orbitalPeriodYears: 164.8,
                massEarthMasses: 17.15,
+               meanLongitudeJ2000Deg: 304.349, longitudeOfPerihelionDeg: 48.124,
                color: Color(red: 0.20, green: 0.35, blue: 0.95), displayRadius: 7),
     ]
 }

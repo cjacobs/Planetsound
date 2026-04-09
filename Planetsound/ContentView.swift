@@ -22,21 +22,32 @@ struct ContentView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 40) {
-            Label("HRTF", systemImage: "ear")
-
-            Button(action: { engine.toggle() }) {
-                Image(systemName: engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 52))
-                    .foregroundStyle(engine.isPlaying ? Color.yellow : Color.white)
-                    .symbolEffect(.bounce, value: engine.isPlaying)
+        let bindable = Bindable(engine)
+        return VStack(spacing: 12) {
+            Picker("Start", selection: bindable.startingConfiguration) {
+                ForEach(StartingConfiguration.allCases, id: \.self) {
+                    Text($0.rawValue).tag($0)
+                }
             }
-            .buttonStyle(.plain)
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 240)
 
-            Label("8 worlds", systemImage: "globe")
+            HStack(spacing: 40) {
+                Label("HRTF", systemImage: "ear")
+
+                Button(action: { engine.toggle() }) {
+                    Image(systemName: engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 52))
+                        .foregroundStyle(engine.isPlaying ? Color.yellow : Color.white)
+                        .symbolEffect(.bounce, value: engine.isPlaying)
+                }
+                .buttonStyle(.plain)
+
+                Label("8 worlds", systemImage: "globe")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
         .padding(.bottom, 24)
     }
 }

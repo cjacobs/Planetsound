@@ -28,33 +28,12 @@ struct ContentView: View {
         }
     }
 
+    
     private var footer: some View {
-        let bindable = Bindable(engine)
-        return VStack(spacing: 12) {
-            Picker("Start", selection: bindable.startingConfiguration) {
-                ForEach(StartingConfiguration.allCases, id: \.self) {
-                    Text($0.rawValue).tag($0)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 240)
+        VStack(spacing: 12)
+        {
+            planetPositionPicker
 
-            HStack(spacing: 40) {
-                Label("HRTF", systemImage: "ear")
-
-                Button(action: { engine.toggle() }) {
-                    Image(systemName: engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 52))
-                        .foregroundStyle(engine.isPlaying ? Color.yellow : Color.white)
-                        .symbolEffect(.bounce, value: engine.isPlaying)
-                }
-                .buttonStyle(.plain)
-
-                Label("8 worlds", systemImage: "globe")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        VStack(spacing: 12) {
             planetToggles
 
             HStack(spacing: 20) {
@@ -71,7 +50,22 @@ struct ContentView: View {
                 generatorPicker
             }
         }
+        .font(.caption)
+        .foregroundStyle(.secondary)
         .padding(.bottom, 24)
+    }
+    
+    private var planetPositionPicker: some View {
+        Picker("Start", selection: Binding(
+            get: { engine.startingConfiguration },
+            set: { engine.startingConfiguration = $0 }
+        )) {
+            ForEach(StartingConfiguration.allCases, id: \.self) {
+                Text($0.rawValue).tag($0)
+            }
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 240)
     }
 
     private var planetToggles: some View {
@@ -81,7 +75,8 @@ struct ContentView: View {
                 Button {
                     engine.setPlanetEnabled(planet.name, enabled: !enabled)
                 } label: {
-                    Text(planetAbbreviation(planet.name))
+                    let planetLabel = planetAbbreviation(planet.name)
+                    Text(planetLabel)
                         .font(.system(size: 9, weight: .medium, design: .rounded))
                         .foregroundStyle(enabled ? .white : .white.opacity(0.35))
                         .frame(width: 28, height: 22)
@@ -100,29 +95,16 @@ struct ContentView: View {
     }
 
     private var generatorPicker: some View {
-        HStack(spacing: 4) {
+        Picker("Generator", selection: Binding(
+            get: { engine.generator },
+            set: { engine.setGenerator($0) }
+        )) {
             ForEach(SoundGenerator.allCases) { gen in
-                let selected = engine.generator == gen
-                Button {
-                    engine.setGenerator(gen)
-                } label: {
-                    Text(gen.label)
-                        .font(.system(size: 10, weight: selected ? .semibold : .regular, design: .rounded))
-                        .foregroundStyle(selected ? .white : .white.opacity(0.5))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(selected ? Color.white.opacity(0.2) : Color.white.opacity(0.06))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(selected ? Color.white.opacity(0.4) : Color.white.opacity(0.2))
-                        )
-                }
-                .buttonStyle(.plain)
+                Text(gen.label).tag(gen)
             }
         }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 180)
     }
 
     private func planetAbbreviation(_ name: String) -> String {

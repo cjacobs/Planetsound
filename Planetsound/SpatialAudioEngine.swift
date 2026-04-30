@@ -40,21 +40,18 @@ final class SolarSystemEngine {
     /// The active sound generation strategy.
     private(set) var generator: SoundGenerator = .sine
 
+    /// Whether the engine is currently using multi-channel surround rendering.
+    /// Automatically set when the output device reports more than 2 channels.
+    private(set) var isSurround = false
+
     // MARK: - Orbit parameters
 
     /// Seconds Mercury takes to complete one full orbit.
     /// All other planets scale proportionally by Kepler's third law.
     let mercuryRevolutionDuration: Double = 10
 
-    /// Maps a semi-major axis in AU to a 3D audio radius in metres.
-    ///
-    /// Swap this closure to experiment with different perceptual scales.
-    /// The default is a logarithmic mapping: Pluto → 4 m, Mercury → 0.4 m.
-    var audioDistanceScale: (Double) -> Double = { au in
-        let maxAU = 39.48   // Pluto
-        let t = log(1 + au) / log(1 + maxAU)   // normalised 0…1
-        return 0.4 + t * 3.6                    // 0.4 m … 4.0 m
-    }
+    /// Shared scale mapping for AU → audio distance, frequency, etc.
+    @ObservationIgnored private let mapping = ScaleMapping.default
 
     // MARK: - Audio graph
 
@@ -63,6 +60,7 @@ final class SolarSystemEngine {
     @ObservationIgnored private var playerNodes: [String: AVAudioPlayerNode] = [:]
     /// Actual hardware sample rate, resolved in buildGraph().
     @ObservationIgnored private var bufferSampleRate: Double = 44100
+    @ObservationIgnored private var configChangeObserver: (any NSObjectProtocol)?
 
     // MARK: - Animation
 
@@ -75,6 +73,13 @@ final class SolarSystemEngine {
         configureAudioSession()
         buildGraph()
         applyConfiguration()   // sets initial angles to real-world positions
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleConfigurationChange() }
+        }
     }
 
     // MARK: - Public API
@@ -141,10 +146,27 @@ final class SolarSystemEngine {
             let rad = meanAnomalyDeg * .pi / 180
             return (planet.name, rad)
         })
+    }
+
     /// Mutes or unmutes a single planet by setting its player node volume.
     func setPlanetEnabled(_ name: String, enabled: Bool) {
         planetEnabled[name] = enabled
         playerNodes[name]?.volume = enabled ? 1.0 : 0.0
+    }
+
+    /// Switches between surround (multi-channel) and binaural (HRTF) rendering.
+    func setSurround(_ enabled: Bool) {
+        guard enabled != isSurround else { return }
+        let wasPlaying = isPlaying
+        if wasPlaying {
+            for node in playerNodes.values { node.stop() }
+            engine.stop()
+            stopOrbiting()
+            isPlaying = false
+        }
+        reconnectEnvironment(surround: enabled)
+        isSurround = enabled
+        if wasPlaying { play() }
     }
 
     /// Switches the sound generator and re-schedules all currently playing buffers.
@@ -198,43 +220,47 @@ final class SolarSystemEngine {
             engine.connect(node, to: environment, format: monoFormat)
             playerNodes[planet.name] = node
             // Start at periapsis (θ = 0); updateOrbits() refines this on first tick.
-            let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
+            let a = Float(mapping.audioDistance(au: planet.semiMajorAxisAU))
             let c = a * Float(planet.eccentricity)
             node.position = AVAudio3DPoint(x: a - c, y: 0, z: 0)
         }
+        reconnectEnvironment(surround: false)
+    }
+
+    /// Reconnects the environment node to the main mixer with the appropriate
+    /// rendering algorithm for the current output mode.
+    private func reconnectEnvironment(surround: Bool) {
+        engine.disconnectNodeOutput(environment)
+        environment.renderingAlgorithm = surround ? .auto : .HRTF
         engine.connect(environment, to: engine.mainMixerNode, format: nil)
     }
 
-    // MARK: - Private – tone generation
-
-    private func makeSineBuffer(frequency: Double, duration: Double = 2) -> AVAudioPCMBuffer {
-        let sampleRate = bufferSampleRate
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        // These initialisers cannot fail for valid sample rates and frame counts.
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
-        buffer.frameLength = frameCount
-        let data = buffer.floatChannelData![0]
-        let twoPi = 2.0 * Double.pi
-        let fadeSamples = 512
-        for i in 0..<Int(frameCount) {
-            let fade: Float
-            if i < fadeSamples {
-                fade = Float(i) / Float(fadeSamples)
-            } else if i >= Int(frameCount) - fadeSamples {
-                fade = Float(Int(frameCount) - i) / Float(fadeSamples)
-            } else {
-                fade = 1
-            }
-            data[i] = Float(sin(twoPi * frequency * Double(i) / sampleRate)) * 0.12 * fade
+    /// Called when the audio hardware configuration changes (e.g. AirPlay route switch).
+    /// Auto-detects multi-channel capability and switches rendering mode accordingly.
+    private func handleConfigurationChange() {
+        // The engine stops automatically on configuration change.
+        let wasPlaying = isPlaying
+        if wasPlaying {
+            for node in playerNodes.values { node.stop() }
+            stopOrbiting()
+            isPlaying = false
         }
-        return buffer
+
+        let channelCount = engine.outputNode.outputFormat(forBus: 0).channelCount
+        let shouldBeSurround = channelCount > 2
+        reconnectEnvironment(surround: shouldBeSurround)
+        isSurround = shouldBeSurround
+
+        if wasPlaying { play() }
     }
+
+    // MARK: - Private – tone generation
 
     private func scheduleTone(for planet: Planet) {
         let freq = mapping.audioFrequency(orbitalPeriodYears: planet.orbitalPeriodYears)
         let buffer = generator.makeBuffer(
             frequency: freq,
+            sampleRate: bufferSampleRate,
             blipRate: angularVelocity(for: planet)
         )
         playerNodes[planet.name]?.scheduleBuffer(buffer, at: nil, options: .loops)
@@ -272,13 +298,13 @@ final class SolarSystemEngine {
 
         for planet in Planet.all {
             // Each planet's angular velocity scales inversely with its period.
-            let angularVelocity = ωMercury * (0.241 / planet.orbitalPeriodYears)
-            let θ = angularVelocity * elapsed + (angleOffsets[planet.name] ?? 0)
+            let ω = angularVelocity(for: planet)
+            let θ = ω * elapsed + (angleOffsets[planet.name] ?? 0)
             angles[planet.name] = θ
 
             // ── 3D position via perifocal → ecliptic rotation ────────────
             // In the orbital (perifocal) plane:
-            let a = Float(audioDistanceScale(planet.semiMajorAxisAU))
+            let a = Float(mapping.audioDistance(au: planet.semiMajorAxisAU))
             let b = a * Float(sqrt(1.0 - planet.eccentricity * planet.eccentricity))
             let c = a * Float(planet.eccentricity)
             let xPF = a * Float(cos(θ)) - c   // along major axis (toward perihelion)

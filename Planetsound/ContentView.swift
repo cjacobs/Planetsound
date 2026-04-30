@@ -1,11 +1,16 @@
 import SwiftUI
+import AVKit
 
 struct ContentView: View {
     @State private var engine = SolarSystemEngine()
+    @State private var usePlanetSymbols = true
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            // Force dark appearance so system controls (pickers, etc.) render correctly
+            // on the black background regardless of the system-wide color scheme.
+            .preferredColorScheme(.dark)
 
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
@@ -25,6 +30,14 @@ struct ContentView: View {
 
                 footer
             }
+            #if os(iOS)
+            .overlay(alignment: .topTrailing) {
+                AirPlayButton()
+                    .frame(width: 44, height: 44)
+                    .padding(.trailing, 16)
+                    .padding(.top, 8)
+            }
+            #endif
         }
     }
 
@@ -37,7 +50,18 @@ struct ContentView: View {
             planetToggles
 
             HStack(spacing: 20) {
-                Label("HRTF", systemImage: "ear")
+                HStack(spacing: 4) {
+                    Image(systemName: "hifispeaker.2.fill")
+                        .hidden()
+                        .overlay {
+                            Image(systemName: engine.isSurround ? "hifispeaker.2.fill" : "ear")
+                        }
+                    Text("Surround")
+                        .hidden()
+                        .overlay {
+                            Text(engine.isSurround ? "Surround" : "HRTF")
+                        }
+                }
 
                 Button(action: { engine.toggle() }) {
                     Image(systemName: engine.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -48,6 +72,17 @@ struct ContentView: View {
                 .buttonStyle(.plain)
 
                 generatorPicker
+
+                Button { engine.setSurround(!engine.isSurround) } label: {
+                    Image(systemName: "hifispeaker.2.fill")
+                        .hidden()
+                        .overlay {
+                            Image(systemName: engine.isSurround ? "hifispeaker.2.fill" : "hifispeaker.fill")
+                                .foregroundStyle(engine.isSurround ? .white : .secondary)
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(engine.isSurround ? "Switch to binaural (HRTF)" : "Switch to surround (multi-channel)")
             }
         }
         .font(.caption)
@@ -70,6 +105,28 @@ struct ContentView: View {
 
     private var planetToggles: some View {
         HStack(spacing: 6) {
+            Button {
+                usePlanetSymbols.toggle()
+            } label: {
+                Text("♃")
+                    .font(.system(size: 14))
+                    .foregroundStyle(usePlanetSymbols ? .white : .white.opacity(0.35))
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(usePlanetSymbols ? Color.white.opacity(0.15) : Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(usePlanetSymbols ? Color.white.opacity(0.35) : Color.white.opacity(0.15))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+                .frame(height: 16)
+                .padding(.trailing, 2)
+
             ForEach(Planet.all) { planet in
                 let enabled = engine.planetEnabled[planet.name] ?? true
                 Button {
@@ -77,7 +134,7 @@ struct ContentView: View {
                 } label: {
                     let planetLabel = planetAbbreviation(planet.name)
                     Text(planetLabel)
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .font(.system(size: usePlanetSymbols ? 14 : 11, weight: .medium, design: .rounded))
                         .foregroundStyle(enabled ? .white : .white.opacity(0.35))
                         .frame(width: 28, height: 22)
                         .background(
@@ -104,21 +161,37 @@ struct ContentView: View {
             }
         }
         .pickerStyle(.segmented)
+        .labelsHidden()
         .frame(maxWidth: 180)
     }
 
     private func planetAbbreviation(_ name: String) -> String {
-        switch name {
-        case "Mercury": "Me"
-        case "Venus":   "Ve"
-        case "Earth":   "Ea"
-        case "Mars":    "Ma"
-        case "Jupiter": "Ju"
-        case "Saturn":  "Sa"
-        case "Uranus":  "Ur"
-        case "Neptune": "Ne"
-        case "Pluto":   "Pl"
-        default:        String(name.prefix(2))
+        if usePlanetSymbols {
+            switch name {
+            case "Mercury": "☿"
+            case "Venus":   "♀"
+            case "Earth":   "♁"
+            case "Mars":    "♂"
+            case "Jupiter": "♃"
+            case "Saturn":  "♄"
+            case "Uranus":  "♅"
+            case "Neptune": "♆"
+            case "Pluto":   "♇"
+            default:        String(name.prefix(1))
+            }
+        } else {
+            switch name {
+            case "Mercury": "Me"
+            case "Venus":   "Ve"
+            case "Earth":   "Ea"
+            case "Mars":    "Ma"
+            case "Jupiter": "Ju"
+            case "Saturn":  "Sa"
+            case "Uranus":  "Ur"
+            case "Neptune": "Ne"
+            case "Pluto":   "Pl"
+            default:        String(name.prefix(2))
+            }
         }
     }
 }
@@ -198,6 +271,21 @@ struct SolarSystemView: View {
         }
     }
 }
+
+#if os(iOS)
+/// Wraps AVRoutePickerView to present the system AirPlay / audio output picker.
+struct AirPlayButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.tintColor = .white
+        picker.backgroundColor = .clear
+        picker.prioritizesVideoDevices = false
+        return picker
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+#endif
 
 #Preview {
     ContentView()

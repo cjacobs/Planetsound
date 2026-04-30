@@ -1,10 +1,18 @@
 import SwiftUI
 import AVKit
 
+/// Carries the computed maxRadius from SolarSystemView up to ContentView so that
+/// SideView can use the same pixels-per-AU scale.
+private struct OrbitScaleKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct ContentView: View {
     @Environment(SolarSystemEngine.self) private var engine
     @State private var usePlanetSymbols = true
     @State private var showingPreferences = false
+    @State private var orbitScale: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -28,8 +36,10 @@ struct ContentView: View {
 
                 SolarSystemView(angles: engine.angles)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onPreferenceChange(OrbitScaleKey.self) { orbitScale = $0 }
 
-                SideView(angles: engine.angles, inclinationMultiplier: engine.inclinationMultiplier)
+                SideView(angles: engine.angles, inclinationMultiplier: engine.inclinationMultiplier,
+                         orbitScale: orbitScale)
                     .frame(maxWidth: .infinity, maxHeight: 120)
 
                 inclinationSlider
@@ -247,47 +257,66 @@ struct SolarSystemView: View {
                     let b = a * CGFloat(sqrt(1 - planet.eccentricity * planet.eccentricity))
                     let c = a * CGFloat(planet.eccentricity)
 
-                    // Sun is at the right focus → ellipse center is c to the left.
-                    let ex = center.x - c
+                    let argPeri = CGFloat(planet.argumentOfPerihelionDeg   * .pi / 180)
+                    let ascNode = CGFloat(planet.longitudeOfAscendingNodeDeg * .pi / 180)
+                    let incl    = CGFloat(planet.inclinationDeg              * .pi / 180)
+                    let (cosΩ, sinΩ) = (cos(ascNode), sin(ascNode))
+                    let (cosω, sinω) = (cos(argPeri),  sin(argPeri))
+                    let cosi = cos(incl)
 
-                    // Orbit ring
-                    ctx.stroke(
-                        Path(ellipseIn: CGRect(x: ex - a, y: center.y - b,
-                                              width: a * 2, height: b * 2)),
-                        with: .color(.white.opacity(0.12)),
-                        style: StrokeStyle(lineWidth: 0.5)
-                    )
+                    // Ecliptic (X, Y) for a parametric angle — matches the
+                    // perifocal→ecliptic transform used by the audio engine.
+                    func eclXY(_ θ: Double) -> CGPoint {
+                        let xPF = a * CGFloat(cos(θ)) - c
+                        let yPF = b * CGFloat(sin(θ))
+                        let xEcl = xPF * (cosΩ*cosω - sinΩ*sinω*cosi)
+                                 + yPF * (-cosΩ*sinω - sinΩ*cosω*cosi)
+                        let yEcl = xPF * (sinΩ*cosω + cosΩ*sinω*cosi)
+                                 + yPF * (-sinΩ*sinω + cosΩ*cosω*cosi)
+                        return CGPoint(x: center.x + xEcl, y: center.y + yEcl)
+                    }
 
-                    // Planet position on the ellipse (parametric angle θ)
-                    let θ  = angles[planet.name] ?? 0
-                    let px = ex + a * CGFloat(cos(θ))
-                    let py = center.y + b * CGFloat(sin(θ))
+                    // Orbit ring (traced path, since rotation makes it non-axis-aligned)
+                    let steps = 90
+                    var path = Path()
+                    for i in 0...steps {
+                        let pt = eclXY(Double(i) / Double(steps) * 2 * .pi)
+                        if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+                    }
+                    path.closeSubpath()
+                    ctx.stroke(path, with: .color(.white.opacity(0.12)),
+                               style: StrokeStyle(lineWidth: 0.5))
+
+                    // Planet position
+                    let θ = angles[planet.name] ?? 0
+                    let pt = eclXY(θ)
                     let r  = planet.displayRadius
 
                     // Glow
                     ctx.fill(
-                        Path(ellipseIn: CGRect(x: px - r * 2.5, y: py - r * 2.5,
+                        Path(ellipseIn: CGRect(x: pt.x - r * 2.5, y: pt.y - r * 2.5,
                                               width: r * 5, height: r * 5)),
                         with: .color(planet.color.opacity(0.2))
                     )
 
                     // Sphere
                     ctx.fill(
-                        Path(ellipseIn: CGRect(x: px - r, y: py - r,
+                        Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r,
                                               width: r * 2, height: r * 2)),
                         with: .color(planet.color)
                     )
 
-                    // Label — only drawn if there is room (outer planets are larger)
+                    // Label
                     ctx.draw(
                         Text(planet.name)
                             .font(.system(size: 7))
                             .foregroundStyle(.white.opacity(0.6)),
-                        at: CGPoint(x: px, y: py + r + 7),
+                        at: CGPoint(x: pt.x, y: pt.y + r + 7),
                         anchor: .center
                     )
                 }
             }
+            .preference(key: OrbitScaleKey.self, value: maxRadius)
         }
     }
 }
@@ -300,6 +329,8 @@ struct SolarSystemView: View {
 struct SideView: View {
     let angles: [String: Double]
     let inclinationMultiplier: Double
+    /// Shared pixels-per-AU scale from SolarSystemView. Zero means not yet known.
+    var orbitScale: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -307,7 +338,7 @@ struct SideView: View {
             let h  = geo.size.height
             let cx = w / 2
             let cy = h / 2
-            let maxR  = w / 2 - 16
+            let maxR  = orbitScale > 0 ? orbitScale : (w / 2 - 16)
             let mapping = ScaleMapping.default
 
             // Fix the z-scale so Pluto's orbit just fills the view at multiplier = 1.
@@ -323,7 +354,7 @@ struct SideView: View {
                 }, with: .color(.white.opacity(0.18)), lineWidth: 0.5)
 
                 // Sun
-                let sr: CGFloat = 5
+                let sr: CGFloat = 7
                 ctx.fill(Path(ellipseIn: CGRect(x: cx - sr * 1.5, y: cy - sr * 1.5,
                                                width: sr * 3, height: sr * 3)),
                          with: .color(.yellow.opacity(0.12)))
@@ -367,7 +398,7 @@ struct SideView: View {
                     // Current planet position
                     let θ  = angles[planet.name] ?? 0
                     let pt = eclXZ(θ)
-                    let r  = planet.displayRadius * 0.85
+                    let r  = planet.displayRadius
                     ctx.fill(Path(ellipseIn: CGRect(x: pt.x - r * 2, y: pt.y - r * 2,
                                                     width: r * 4, height: r * 4)),
                              with: .color(planet.color.opacity(0.2)))

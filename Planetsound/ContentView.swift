@@ -2,8 +2,9 @@ import SwiftUI
 import AVKit
 
 struct ContentView: View {
-    @State private var engine = SolarSystemEngine()
+    @Environment(SolarSystemEngine.self) private var engine
     @State private var usePlanetSymbols = true
+    @State private var showingPreferences = false
 
     var body: some View {
         ZStack {
@@ -28,6 +29,11 @@ struct ContentView: View {
                 SolarSystemView(angles: engine.angles)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+                SideView(angles: engine.angles, inclinationMultiplier: engine.inclinationMultiplier)
+                    .frame(maxWidth: .infinity, maxHeight: 90)
+
+                inclinationSlider
+
                 footer
             }
             #if os(iOS)
@@ -36,6 +42,10 @@ struct ContentView: View {
                     .frame(width: 44, height: 44)
                     .padding(.trailing, 16)
                     .padding(.top, 8)
+            }
+            .sheet(isPresented: $showingPreferences) {
+                PreferencesView()
+                    .environment(engine)
             }
             #endif
         }
@@ -71,7 +81,12 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
 
-                generatorPicker
+                #if os(iOS)
+                Button { showingPreferences = true } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.plain)
+                #endif
 
                 Button { engine.setSurround(!engine.isSurround) } label: {
                     Image(systemName: "hifispeaker.2.fill")
@@ -83,6 +98,11 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .help(engine.isSurround ? "Switch to binaural (HRTF)" : "Switch to surround (multi-channel)")
+
+                #if os(macOS)
+                AirPlayButton()
+                    .frame(width: 26, height: 20)
+                #endif
             }
         }
         .font(.caption)
@@ -90,6 +110,23 @@ struct ContentView: View {
         .padding(.bottom, 24)
     }
     
+    private var inclinationSlider: some View {
+        @Bindable var engine = engine
+        return HStack(spacing: 10) {
+            Text("Inclination")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Slider(value: $engine.inclinationMultiplier, in: 0...8)
+            Text("×\(engine.inclinationMultiplier, specifier: "%.1f")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 36, alignment: .trailing)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 4)
+    }
+
     private var planetPositionPicker: some View {
         Picker("Start", selection: Binding(
             get: { engine.startingConfiguration },
@@ -149,20 +186,6 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             }
         }
-    }
-
-    private var generatorPicker: some View {
-        Picker("Generator", selection: Binding(
-            get: { engine.generator },
-            set: { engine.setGenerator($0) }
-        )) {
-            ForEach(SoundGenerator.allCases) { gen in
-                Text(gen.label).tag(gen)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 180)
     }
 
     private func planetAbbreviation(_ name: String) -> String {
@@ -272,8 +295,96 @@ struct SolarSystemView: View {
     }
 }
 
-#if os(iOS)
+// MARK: - Side View (edge-on / inclination view)
+
+/// Shows the solar system edge-on: horizontal axis is ecliptic X, vertical axis
+/// is ecliptic Z (north of the ecliptic plane). Earth appears as a flat line;
+/// other planets are tilted by their orbital inclinations, scaled by `inclinationMultiplier`.
+struct SideView: View {
+    let angles: [String: Double]
+    let inclinationMultiplier: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let w  = geo.size.width
+            let h  = geo.size.height
+            let cx = w / 2
+            let cy = h / 2
+            let maxR  = w / 2 - 16
+            let mapping = ScaleMapping.default
+
+            // Fix the z-scale so Pluto's orbit just fills the view at multiplier = 1.
+            let aPluto = mapping.screenRadius(au: mapping.maxAU, maxRadius: maxR)
+            let maxZRef = aPluto * CGFloat(sin(Planet.all.last(where: { $0.name == "Pluto" })?.inclinationDeg ?? 17.1) * .pi / 180)
+            let zScale: CGFloat = maxZRef > 0 ? h * 0.42 / maxZRef : 1
+
+            Canvas { ctx, _ in
+                // Ecliptic reference line
+                ctx.stroke(Path { p in
+                    p.move(to: CGPoint(x: 0, y: cy))
+                    p.addLine(to: CGPoint(x: w, y: cy))
+                }, with: .color(.white.opacity(0.18)), lineWidth: 0.5)
+
+                // Sun
+                let sr: CGFloat = 5
+                ctx.fill(Path(ellipseIn: CGRect(x: cx - sr * 1.5, y: cy - sr * 1.5,
+                                               width: sr * 3, height: sr * 3)),
+                         with: .color(.yellow.opacity(0.12)))
+                ctx.fill(Path(ellipseIn: CGRect(x: cx - sr, y: cy - sr,
+                                               width: sr * 2, height: sr * 2)),
+                         with: .color(.yellow.opacity(0.9)))
+
+                for planet in Planet.all {
+                    let a = mapping.screenRadius(au: planet.semiMajorAxisAU, maxRadius: maxR)
+                    let b = a * CGFloat(sqrt(1 - planet.eccentricity * planet.eccentricity))
+                    let c = a * CGFloat(planet.eccentricity)
+
+                    let argPeri = CGFloat(planet.argumentOfPerihelionDeg  * .pi / 180)
+                    let ascNode = CGFloat(planet.longitudeOfAscendingNodeDeg * .pi / 180)
+                    let incl    = CGFloat(planet.inclinationDeg             * .pi / 180)
+                    let cosΩ = cos(ascNode), sinΩ = sin(ascNode)
+                    let cosω = cos(argPeri),  sinω = sin(argPeri)
+                    let cosi = cos(incl),     sini = sin(incl)
+
+                    // Helper: ecliptic (x, z) for parametric angle θ
+                    func eclXZ(_ θ: Double) -> CGPoint {
+                        let xPF = a * CGFloat(cos(θ)) - c
+                        let yPF = b * CGFloat(sin(θ))
+                        let xEcl = xPF * (cosΩ*cosω - sinΩ*sinω*cosi) + yPF * (-cosΩ*sinω - sinΩ*cosω*cosi)
+                        let zEcl = xPF * (sinω*sini)                   + yPF * (cosω*sini)
+                        return CGPoint(x: cx + xEcl,
+                                       y: cy - zEcl * CGFloat(inclinationMultiplier) * zScale)
+                    }
+
+                    // Orbit trace
+                    let steps = 90
+                    var path = Path()
+                    for i in 0...steps {
+                        let pt = eclXZ(Double(i) / Double(steps) * 2 * .pi)
+                        if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
+                    }
+                    path.closeSubpath()
+                    ctx.stroke(path, with: .color(.white.opacity(0.12)),
+                               style: StrokeStyle(lineWidth: 0.5))
+
+                    // Current planet position
+                    let θ  = angles[planet.name] ?? 0
+                    let pt = eclXZ(θ)
+                    let r  = planet.displayRadius * 0.85
+                    ctx.fill(Path(ellipseIn: CGRect(x: pt.x - r * 2, y: pt.y - r * 2,
+                                                    width: r * 4, height: r * 4)),
+                             with: .color(planet.color.opacity(0.2)))
+                    ctx.fill(Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r,
+                                                    width: r * 2, height: r * 2)),
+                             with: .color(planet.color))
+                }
+            }
+        }
+    }
+}
+
 /// Wraps AVRoutePickerView to present the system AirPlay / audio output picker.
+#if os(iOS)
 struct AirPlayButton: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
         let picker = AVRoutePickerView()
@@ -282,8 +393,18 @@ struct AirPlayButton: UIViewRepresentable {
         picker.prioritizesVideoDevices = false
         return picker
     }
-
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+#elseif os(macOS)
+struct AirPlayButton: NSViewRepresentable {
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.setRoutePickerButtonColor(.white, for: .normal)
+        picker.setRoutePickerButtonColor(.white, for: .active)
+        picker.isRoutePickerButtonBordered = false
+        return picker
+    }
+    func updateNSView(_ nsView: AVRoutePickerView, context: Context) {}
 }
 #endif
 

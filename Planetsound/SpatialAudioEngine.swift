@@ -48,7 +48,19 @@ final class SolarSystemEngine {
 
     /// Seconds Mercury takes to complete one full orbit.
     /// All other planets scale proportionally by Kepler's third law.
-    let mercuryRevolutionDuration: Double = 10
+    /// Changing this live snapshots current positions so there is no jump.
+    var mercuryRevolutionDuration: Double = 10 {
+        didSet { handleSpeedChange() }
+    }
+
+    /// Reverb send level in dB. -40 = dry, 0 = fully wet.
+    var reverbLevel: Float = -20 {
+        didSet { environment.reverbParameters.level = reverbLevel }
+    }
+
+    /// Multiplier applied to orbital inclinations for both audio (up/down HRTF) and the side view.
+    /// 0 = all planets in one plane; 1 = true inclinations; >1 = exaggerated.
+    var inclinationMultiplier: Double = 1.0
 
     /// Shared scale mapping for AU → audio distance, frequency, etc.
     @ObservationIgnored private let mapping = ScaleMapping.default
@@ -212,7 +224,7 @@ final class SolarSystemEngine {
         environment.listenerPosition    = AVAudio3DPoint(x: 0, y: 0, z: 0)
         environment.renderingAlgorithm  = .HRTF
         environment.reverbParameters.enable = true
-        environment.reverbParameters.level  = -20
+        environment.reverbParameters.level  = reverbLevel
 
         for planet in Planet.all {
             let node = AVAudioPlayerNode()
@@ -292,6 +304,16 @@ final class SolarSystemEngine {
         startDate = nil
     }
 
+    /// Snapshots current angular positions into offsets and resets the clock
+    /// so a speed change doesn't cause a discontinuous position jump.
+    private func handleSpeedChange() {
+        guard isPlaying else { return }
+        for planet in Planet.all {
+            angleOffsets[planet.name] = angles[planet.name] ?? 0
+        }
+        startDate = Date()
+    }
+
     private func updateOrbits() {
         guard let start = startDate else { return }
         let elapsed = Date().timeIntervalSince(start)
@@ -328,8 +350,10 @@ final class SolarSystemEngine {
 
             // Map ecliptic → AVAudio3DPoint: ecliptic X→audio X,
             // ecliptic Y→audio Z, ecliptic north (Z)→audio Y (up).
+            // Inclination multiplier scales the vertical component so the
+            // HRTF renders planets more/less distinctly above or below.
             playerNodes[planet.name]?.position = AVAudio3DPoint(
-                x: xEcl, y: zEcl, z: yEcl
+                x: xEcl, y: zEcl * Float(inclinationMultiplier), z: yEcl
             )
         }
     }

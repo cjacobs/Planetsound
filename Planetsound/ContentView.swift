@@ -166,49 +166,57 @@ struct SolarSystemView: View {
                                                width: sr * 2, height: sr * 2)),
                          with: .color(.yellow.opacity(0.95)))
 
-                // ── Orbits + planets ─────────────────────────────────────
-                for planet in Planet.all {
+                // Pre-compute each planet's screen position.
+                struct PlanetDraw {
+                    let planet: Planet
+                    let px, py: CGFloat
+                    let r: CGFloat
+                }
+                let draws: [PlanetDraw] = Planet.all.map { planet in
                     let a = mapping.screenRadius(au: planet.semiMajorAxisAU, maxRadius: maxRadius)
                     let b = a * CGFloat(sqrt(1 - planet.eccentricity * planet.eccentricity))
                     let c = a * CGFloat(planet.eccentricity)
-
-                    // Sun is at the right focus → ellipse center is c to the left.
                     let ex = center.x - c
+                    let θ  = angles[planet.name] ?? 0
+                    return PlanetDraw(planet: planet,
+                                      px: ex + a * CGFloat(cos(θ)),
+                                      py: center.y + b * CGFloat(sin(θ)),
+                                      r: planet.displayRadius)
+                }
 
-                    // Orbit ring
+                // ── Pass 1: orbit rings (all behind every sphere) ─────────
+                for d in draws {
+                    let a = mapping.screenRadius(au: d.planet.semiMajorAxisAU, maxRadius: maxRadius)
+                    let b = a * CGFloat(sqrt(1 - d.planet.eccentricity * d.planet.eccentricity))
+                    let c = a * CGFloat(d.planet.eccentricity)
                     ctx.stroke(
-                        Path(ellipseIn: CGRect(x: ex - a, y: center.y - b,
+                        Path(ellipseIn: CGRect(x: center.x - c - a, y: center.y - b,
                                               width: a * 2, height: b * 2)),
                         with: .color(.white.opacity(0.12)),
                         style: StrokeStyle(lineWidth: 0.5)
                     )
+                }
 
-                    // Planet position on the ellipse (parametric angle θ)
-                    let θ  = angles[planet.name] ?? 0
-                    let px = ex + a * CGFloat(cos(θ))
-                    let py = center.y + b * CGFloat(sin(θ))
-                    let r  = planet.displayRadius
-
+                // ── Pass 2: spheres sorted back-to-front by screen y ──────
+                for d in draws.sorted(by: { $0.py < $1.py }) {
                     // Glow
                     ctx.fill(
-                        Path(ellipseIn: CGRect(x: px - r * 2.5, y: py - r * 2.5,
-                                              width: r * 5, height: r * 5)),
-                        with: .color(planet.color.opacity(0.2))
+                        Path(ellipseIn: CGRect(x: d.px - d.r * 2.5, y: d.py - d.r * 2.5,
+                                              width: d.r * 5, height: d.r * 5)),
+                        with: .color(d.planet.color.opacity(0.2))
                     )
-
                     // Sphere
                     ctx.fill(
-                        Path(ellipseIn: CGRect(x: px - r, y: py - r,
-                                              width: r * 2, height: r * 2)),
-                        with: .color(planet.color)
+                        Path(ellipseIn: CGRect(x: d.px - d.r, y: d.py - d.r,
+                                              width: d.r * 2, height: d.r * 2)),
+                        with: .color(d.planet.color)
                     )
-
-                    // Label — only drawn if there is room (outer planets are larger)
+                    // Label
                     ctx.draw(
-                        Text(planet.name)
+                        Text(d.planet.name)
                             .font(.system(size: 7))
                             .foregroundStyle(.white.opacity(0.6)),
-                        at: CGPoint(x: px, y: py + r + 7),
+                        at: CGPoint(x: d.px, y: d.py + d.r + 7),
                         anchor: .center
                     )
                 }

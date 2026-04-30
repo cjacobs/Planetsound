@@ -251,8 +251,14 @@ struct SolarSystemView: View {
                                                width: sr * 2, height: sr * 2)),
                          with: .color(.yellow.opacity(0.95)))
 
-                // ── Orbits + planets ─────────────────────────────────────
-                for planet in Planet.all {
+                // Pre-compute each planet's screen position and orbit path.
+                struct PlanetDraw {
+                    let planet: Planet
+                    let px, py: CGFloat
+                    let r: CGFloat
+                    let orbitPath: Path
+                }
+                let draws: [PlanetDraw] = Planet.all.map { planet in
                     let a = mapping.screenRadius(au: planet.semiMajorAxisAU, maxRadius: maxRadius)
                     let b = a * CGFloat(sqrt(1 - planet.eccentricity * planet.eccentricity))
                     let c = a * CGFloat(planet.eccentricity)
@@ -264,8 +270,6 @@ struct SolarSystemView: View {
                     let (cosω, sinω) = (cos(argPeri),  sin(argPeri))
                     let cosi = cos(incl)
 
-                    // Ecliptic (X, Y) for a parametric angle — matches the
-                    // perifocal→ecliptic transform used by the audio engine.
                     func eclXY(_ θ: Double) -> CGPoint {
                         let xPF = a * CGFloat(cos(θ)) - c
                         let yPF = b * CGFloat(sin(θ))
@@ -284,34 +288,39 @@ struct SolarSystemView: View {
                         if i == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
                     }
                     path.closeSubpath()
-                    ctx.stroke(path, with: .color(.white.opacity(0.12)),
-                               style: StrokeStyle(lineWidth: 0.5))
 
-                    // Planet position
                     let θ = angles[planet.name] ?? 0
                     let pt = eclXY(θ)
                     let r  = planet.displayRadius
+                    return PlanetDraw(planet: planet, px: pt.x, py: pt.y, r: r, orbitPath: path)
+                }
 
+                // ── Pass 1: orbit rings (all behind every sphere) ─────────
+                for d in draws {
+                    ctx.stroke(d.orbitPath, with: .color(.white.opacity(0.12)),
+                               style: StrokeStyle(lineWidth: 0.5))
+                }
+
+                // ── Pass 2: spheres sorted back-to-front by screen y ──────
+                for d in draws.sorted(by: { $0.py < $1.py }) {
                     // Glow
                     ctx.fill(
-                        Path(ellipseIn: CGRect(x: pt.x - r * 2.5, y: pt.y - r * 2.5,
-                                              width: r * 5, height: r * 5)),
-                        with: .color(planet.color.opacity(0.2))
+                        Path(ellipseIn: CGRect(x: d.px - d.r * 2.5, y: d.py - d.r * 2.5,
+                                              width: d.r * 5, height: d.r * 5)),
+                        with: .color(d.planet.color.opacity(0.2))
                     )
-
                     // Sphere
                     ctx.fill(
-                        Path(ellipseIn: CGRect(x: pt.x - r, y: pt.y - r,
-                                              width: r * 2, height: r * 2)),
-                        with: .color(planet.color)
+                        Path(ellipseIn: CGRect(x: d.px - d.r, y: d.py - d.r,
+                                              width: d.r * 2, height: d.r * 2)),
+                        with: .color(d.planet.color)
                     )
-
                     // Label
                     ctx.draw(
-                        Text(planet.name)
+                        Text(d.planet.name)
                             .font(.system(size: 7))
                             .foregroundStyle(.white.opacity(0.6)),
-                        at: CGPoint(x: pt.x, y: pt.y + r + 7),
+                        at: CGPoint(x: d.px, y: d.py + d.r + 7),
                         anchor: .center
                     )
                 }

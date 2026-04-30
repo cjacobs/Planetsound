@@ -30,7 +30,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 SideView(angles: engine.angles, inclinationMultiplier: engine.inclinationMultiplier)
-                    .frame(maxWidth: .infinity, maxHeight: 90)
+                    .frame(maxWidth: .infinity, maxHeight: 120)
 
                 inclinationSlider
 
@@ -99,10 +99,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .help(engine.isSurround ? "Switch to binaural (HRTF)" : "Switch to surround (multi-channel)")
 
-                #if os(macOS)
-                AirPlayButton()
-                    .frame(width: 26, height: 20)
-                #endif
+
             }
         }
         .font(.caption)
@@ -394,17 +391,6 @@ struct AirPlayButton: UIViewRepresentable {
         return picker
     }
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
-}
-#elseif os(macOS)
-struct AirPlayButton: NSViewRepresentable {
-    func makeNSView(context: Context) -> AVRoutePickerView {
-        let picker = AVRoutePickerView()
-        picker.setRoutePickerButtonColor(.white, for: .normal)
-        picker.setRoutePickerButtonColor(.white, for: .active)
-        picker.isRoutePickerButtonBordered = false
-        return picker
-    }
-    func updateNSView(_ nsView: AVRoutePickerView, context: Context) {}
 }
 #endif
 

@@ -1,5 +1,8 @@
 import AVFoundation
 import Observation
+#if os(macOS)
+import MediaPlayer
+#endif
 
 // MARK: - Starting configuration
 
@@ -85,6 +88,7 @@ final class SolarSystemEngine {
         configureAudioSession()
         buildGraph()
         applyConfiguration()   // sets initial angles to real-world positions
+        configureNowPlaying()
         configChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
@@ -110,6 +114,7 @@ final class SolarSystemEngine {
         }
         startOrbiting()
         isPlaying = true
+        updateNowPlayingState()
     }
 
     func stop() {
@@ -118,6 +123,7 @@ final class SolarSystemEngine {
         engine.stop()
         stopOrbiting()
         isPlaying = false
+        updateNowPlayingState()
     }
 
     func toggle() { isPlaying ? stop() : play() }
@@ -192,6 +198,31 @@ final class SolarSystemEngine {
             scheduleTone(for: planet)
             node.play()
         }
+    }
+
+    // MARK: - Private – Now Playing (macOS AirPlay enablement)
+
+    /// Registers remote-command handlers and sets static now-playing metadata.
+    /// On macOS this makes the app visible to the AirPlay route picker.
+    private func configureNowPlaying() {
+        #if os(macOS)
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget  { [weak self] _ in self?.play();   return .success }
+        center.pauseCommand.addTarget { [weak self] _ in self?.stop();   return .success }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.toggle(); return .success }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+            MPMediaItemPropertyTitle:              "Planetsound",
+            MPNowPlayingInfoPropertyMediaType:     MPNowPlayingInfoMediaType.audio.rawValue,
+            MPNowPlayingInfoPropertyIsLiveStream:  true,
+        ]
+        #endif
+    }
+
+    /// Keeps the now-playing playback state in sync so the system knows whether the app is active.
+    private func updateNowPlayingState() {
+        #if os(macOS)
+        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
+        #endif
     }
 
     // MARK: - Private – audio setup

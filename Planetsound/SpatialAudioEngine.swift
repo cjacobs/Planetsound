@@ -47,6 +47,21 @@ final class SolarSystemEngine {
     /// Automatically set when the output device reports more than 2 channels.
     private(set) var isSurround = false
 
+    /// Number of output channels the hardware is currently rendering to.
+    /// 2 = binaural/stereo; 6 = 5.1; 8 = 7.1; etc.
+    private(set) var outputChannelCount: UInt32 = 2
+
+    /// Human-readable label for the current output format shown in the UI.
+    var outputFormatLabel: String {
+        if !isSurround { return "HRTF" }
+        switch outputChannelCount {
+        case 4:  return "4.0"
+        case 6:  return "5.1"
+        case 8:  return "7.1"
+        default: return "\(outputChannelCount)ch"
+        }
+    }
+
     // MARK: - Orbit parameters
 
     /// Seconds Mercury takes to complete one full orbit.
@@ -233,6 +248,10 @@ final class SolarSystemEngine {
         do {
             try session.setCategory(.playback, mode: .default, options: [])
             try session.setActive(true)
+            // Tell the system this app supplies multichannel content so AirPlay
+            // can route more than 2 channels when the receiver supports it.
+            try session.setSupportsMultichannelContent(true)
+            try session.setPreferredOutputNumberOfChannels(session.maximumOutputNumberOfChannels)
         } catch {
             print("SolarSystemEngine: audio session configuration failed — \(error)")
         }
@@ -271,11 +290,22 @@ final class SolarSystemEngine {
     }
 
     /// Reconnects the environment node to the main mixer with the appropriate
-    /// rendering algorithm for the current output mode.
+    /// rendering algorithm and output format for the current output mode.
     private func reconnectEnvironment(surround: Bool) {
         engine.disconnectNodeOutput(environment)
-        environment.renderingAlgorithm = surround ? .auto : .HRTF
-        engine.connect(environment, to: engine.mainMixerNode, format: nil)
+        if surround {
+            environment.renderingAlgorithm = .auto
+            // Use the hardware's actual multichannel format so AVAudioEnvironmentNode
+            // routes each spatialised source to discrete speaker channels instead of
+            // downmixing everything to stereo.
+            let outputFormat = engine.outputNode.outputFormat(forBus: 0)
+            engine.connect(environment, to: engine.mainMixerNode, format: outputFormat)
+            outputChannelCount = outputFormat.channelCount
+        } else {
+            environment.renderingAlgorithm = .HRTF
+            engine.connect(environment, to: engine.mainMixerNode, format: nil)
+            outputChannelCount = 2
+        }
     }
 
     /// Called when the audio hardware configuration changes (e.g. AirPlay route switch).
@@ -288,6 +318,13 @@ final class SolarSystemEngine {
             stopOrbiting()
             isPlaying = false
         }
+
+#if os(iOS)
+        // maximumOutputNumberOfChannels reflects the newly connected device, so
+        // re-request the maximum for the new route before querying channel count.
+        let session = AVAudioSession.sharedInstance()
+        try? session.setPreferredOutputNumberOfChannels(session.maximumOutputNumberOfChannels)
+#endif
 
         let channelCount = engine.outputNode.outputFormat(forBus: 0).channelCount
         let shouldBeSurround = channelCount > 2

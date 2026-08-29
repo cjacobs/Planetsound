@@ -38,6 +38,10 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onPreferenceChange(OrbitScaleKey.self) { orbitScale = $0 }
 
+                Rectangle()
+                    .fill(.white.opacity(0.15))
+                    .frame(height: 0.5)
+
                 SideView(angles: engine.angles, inclinationMultiplier: engine.inclinationMultiplier,
                          orbitScale: orbitScale)
                     .frame(maxWidth: .infinity, maxHeight: 120)

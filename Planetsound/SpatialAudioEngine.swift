@@ -61,7 +61,7 @@ final class SolarSystemEngine {
         didSet { environment.reverbParameters.level = reverbLevel }
     }
 
-    /// Multiplier applied to orbital inclinations for both audio (up/down HRTF) and the side view.
+    /// Multiplier applied to orbital inclinations for both audio (up/down hrtf) and the side view.
     /// 0 = all planets in one plane; 1 = true inclinations; >1 = exaggerated.
     var inclinationMultiplier: Double = 1.0
 
@@ -253,7 +253,7 @@ final class SolarSystemEngine {
 
         engine.attach(environment)
         environment.listenerPosition    = AVAudio3DPoint(x: 0, y: 0, z: 0)
-        environment.renderingAlgorithm  = .HRTF
+        environment.renderingAlgorithm  = .HRTFHQ
         environment.reverbParameters.enable = true
         environment.reverbParameters.level  = reverbLevel
 

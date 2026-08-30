@@ -75,16 +75,8 @@ struct ContentView: View {
 
             HStack(spacing: 20) {
                 HStack(spacing: 4) {
-                    Image(systemName: "hifispeaker.2.fill")
-                        .hidden()
-                        .overlay {
-                            Image(systemName: engine.isSurround ? "hifispeaker.2.fill" : "ear")
-                        }
-                    Text("Surround")
-                        .hidden()
-                        .overlay {
-                            Text(engine.isSurround ? "Surround" : "HRTF")
-                        }
+                    Image(systemName: engine.isSurround ? "hifispeaker.2.fill" : "ear")
+                    Text(engine.outputFormatLabel)
                 }
 
                 Button(action: { engine.toggle() }) {
@@ -111,7 +103,7 @@ struct ContentView: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .help(engine.isSurround ? "Switch to binaural (HRTF)" : "Switch to surround (multi-channel)")
+                .help(engine.isSurround ? "Switch to binaural (HRTF)" : "Switch to surround (\(engine.outputFormatLabel) when connected)")
 
 
             }
